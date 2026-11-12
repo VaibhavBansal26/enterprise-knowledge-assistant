@@ -5,7 +5,24 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Planning. See [ROADMAP.md](ROADMAP.md).
+Phase 0 (foundations) scaffolded. See [ROADMAP.md](ROADMAP.md).
+
+## Quick start
+```bash
+# Postgres (pgvector) + Redis
+docker compose up -d
+
+# API (needs .NET 9 SDK) -> http://localhost:5000 (see launch output)
+dotnet run --project src/Api
+
+# Web -> http://localhost:5173
+cd web && npm install && npm run dev
+```
+Run everything in containers: `docker compose --profile full up --build` (API on :8080).
+
+Health endpoints: `/health/live` (process up), `/health/ready` (Postgres + Redis reachable).
+
+Tests: `dotnet test`
 
 ## Planned structure
 ```
