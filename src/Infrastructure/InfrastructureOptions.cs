@@ -8,6 +8,9 @@ public sealed class DatabaseOptions
 
     [Required, MinLength(1)]
     public string ConnectionString { get; init; } = string.Empty;
+
+    /// <summary>Apply pending EF Core migrations when the API starts (dev and test only).</summary>
+    public bool MigrateOnStartup { get; init; }
 }
 
 public sealed class RedisOptions

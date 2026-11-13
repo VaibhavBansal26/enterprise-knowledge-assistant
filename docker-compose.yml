@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: kb_dev_password
       POSTGRES_DB: kb
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -21,7 +21,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6380}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,6 +36,7 @@ services:
     environment:
       Database__ConnectionString: Host=postgres;Port=5432;Database=kb;Username=kb;Password=kb_dev_password
       Redis__ConnectionString: redis:6379
+      Database__MigrateOnStartup: "true"
     ports:
       - "8080:8080"
     depends_on:

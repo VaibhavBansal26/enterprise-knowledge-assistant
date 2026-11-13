@@ -1,6 +1,8 @@
+using Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using StackExchange.Redis;
 
@@ -20,16 +22,27 @@ public static class DependencyInjection
             .Bind(config.GetSection(RedisOptions.SectionName))
             .ValidateDataAnnotations();
 
-        var db = config.GetSection(DatabaseOptions.SectionName).Get<DatabaseOptions>() ?? new();
-        var redis = config.GetSection(RedisOptions.SectionName).Get<RedisOptions>() ?? new();
+        // Connection details are resolved lazily from options, so configuration
+        // overrides (tests, environment variables) always take effect.
+        services.AddSingleton(sp =>
+        {
+            var builder = new NpgsqlDataSourceBuilder(
+                sp.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString);
+            // Required to map Dictionary<string,string> (document metadata) to jsonb.
+            builder.EnableDynamicJson();
+            return builder.Build();
+        });
+        services.AddSingleton<IConnectionMultiplexer>(sp =>
+            ConnectionMultiplexer.Connect(
+                sp.GetRequiredService<IOptions<RedisOptions>>().Value.ConnectionString + ",abortConnect=false"));
 
-        services.AddNpgsqlDataSource(db.ConnectionString);
-        services.AddSingleton<IConnectionMultiplexer>(_ =>
-            ConnectionMultiplexer.Connect(redis.ConnectionString + ",abortConnect=false"));
+        services.AddDbContext<AppDbContext>((sp, options) => options
+            .UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>())
+            .UseSnakeCaseNamingConvention());
 
         services.AddHealthChecks()
-            .AddNpgSql(db.ConnectionString, name: "postgres", tags: [ReadyTag])
-            .AddRedis(redis.ConnectionString, name: "redis", tags: [ReadyTag]);
+            .AddNpgSql(sp => sp.GetRequiredService<NpgsqlDataSource>(), name: "postgres", tags: [ReadyTag])
+            .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>(), name: "redis", tags: [ReadyTag]);
 
         return services;
     }
