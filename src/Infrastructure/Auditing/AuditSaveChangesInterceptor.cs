@@ -36,6 +36,13 @@ public sealed class AuditSaveChangesInterceptor(ICurrentUser currentUser, ITenan
             return;
         }
 
+        // The audit log records what *users* did. Background workers (no user) change document status as part
+        // of ingestion; auditing every status flip would bury the signal.
+        if (currentUser.UserId is null)
+        {
+            return;
+        }
+
         context.ChangeTracker.DetectChanges();
 
         var audits = context.ChangeTracker.Entries()

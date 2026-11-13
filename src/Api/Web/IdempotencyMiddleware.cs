@@ -159,6 +159,30 @@ public sealed partial class IdempotencyMiddleware(
     {
         request.EnableBuffering();
         using var sha = SHA256.Create();
+
+        // A multipart body differs on every retry (the client picks a fresh random boundary each time), so
+        // hashing raw bytes would reject every genuine retry of an upload. Fingerprint what the request
+        // *means* instead: its form fields and each file's name and content.
+        if (request.HasFormContentType)
+        {
+            var form = await request.ReadFormAsync();
+            var parts = new List<string>();
+            foreach (var field in form.OrderBy(f => f.Key, StringComparer.Ordinal))
+            {
+                parts.Add($"field:{field.Key}={field.Value}");
+            }
+
+            foreach (var file in form.Files.OrderBy(f => f.Name, StringComparer.Ordinal))
+            {
+                await using var stream = file.OpenReadStream();
+                var fileHash = Convert.ToHexString(await sha.ComputeHashAsync(stream));
+                parts.Add($"file:{file.Name}:{file.FileName}:{file.Length}:{fileHash}");
+            }
+
+            request.Body.Position = 0;
+            return Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('\n', parts))));
+        }
+
         var hash = await sha.ComputeHashAsync(request.Body);
         request.Body.Position = 0;
         return Convert.ToHexString(hash);

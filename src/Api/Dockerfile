@@ -15,6 +15,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
 ENV ASPNETCORE_URLS=http://+:8080
+# Uploaded files live on a volume; the non-root app user must own the mount point.
+RUN mkdir -p /data/blobs && chown $APP_UID /data/blobs
 EXPOSE 8080
 USER $APP_UID
 ENTRYPOINT ["dotnet", "Api.dll"]

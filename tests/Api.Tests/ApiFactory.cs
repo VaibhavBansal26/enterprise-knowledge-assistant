@@ -24,23 +24,33 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         .WithImage("redis:7-alpine")
         .Build();
 
+    private readonly DirectoryInfo _blobRoot = Directory.CreateTempSubdirectory("kb-blobs-");
+
+    public string BlobRoot => _blobRoot.FullName;
+
     public async Task InitializeAsync() => await Task.WhenAll(_postgres.StartAsync(), _redis.StartAsync());
 
     async Task IAsyncLifetime.DisposeAsync()
     {
         await _postgres.DisposeAsync();
         await _redis.DisposeAsync();
+        _blobRoot.Delete(recursive: true);
     }
 
     /// <summary>A client that sends a valid access token for <paramref name="user"/>.</summary>
     public HttpClient CreateClientAs(TestUser user) => CreateClientWithToken(TestAuth.Token(user));
 
-    public HttpClient CreateClientWithToken(string token)
+    public HttpClient CreateClientWithToken(string token) => ClientWithToken(this, token);
+
+    public static HttpClient ClientWithToken(WebApplicationFactory<Program> host, string token)
     {
-        var client = CreateClient();
+        var client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
+
+    public static HttpClient ClientAs(WebApplicationFactory<Program> host, TestUser user) =>
+        ClientWithToken(host, TestAuth.Token(user));
 
     /// <summary>Tenant A administrator: the default identity for tests that are not about authorization.</summary>
     public HttpClient AdminClient() => CreateClientAs(TestAuth.AdminA);
@@ -56,8 +66,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Cors:AllowedOrigins:0", AllowedOrigin);
         builder.UseSetting("Auth:Authority", TestAuth.Issuer);
         builder.UseSetting("Auth:Audience", TestAuth.Audience);
+        builder.UseSetting("Storage:RootPath", _blobRoot.FullName);
         // High enough that ordinary tests never trip it; the rate-limit tests lower it on their own host.
         builder.UseSetting("RateLimiting:PermitLimit", "100000");
+
+        // The shared host does not run the ingestion worker, so uploads stay Pending and tests that are not
+        // about ingestion are deterministic. Ingestion tests start their own host with the worker enabled.
+        builder.UseSetting("Ingestion:WorkerEnabled", "false");
+        builder.UseSetting("Ingestion:PollIntervalMs", "25");
+        builder.UseSetting("Ingestion:RetryBaseSeconds", "0");
+        builder.UseSetting("Ingestion:MaxAttempts", "3");
 
         // Trust our test signing key instead of fetching keys from an identity provider.
         builder.ConfigureTestServices(services =>

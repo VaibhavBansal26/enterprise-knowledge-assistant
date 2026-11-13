@@ -5,7 +5,7 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Phases 0 (foundations), 1 (CRUD and data layer), 2 (middleware) and 3 (auth and multi-tenancy) done. See [ROADMAP.md](ROADMAP.md).
+Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy) and 4 (ingestion pipeline) done. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 ```bash
@@ -33,6 +33,33 @@ Run everything in containers: `docker compose --profile full up --build` (API on
 - Deletes are soft. Updates use optimistic concurrency: send the `version` you read, get `409` if it is stale.
 - Errors are RFC 7807 ProblemDetails; validation failures return `400` with per-field errors.
 - Health: `/health/live` (process up), `/health/ready` (Postgres + Redis reachable).
+
+## Ingestion pipeline
+Upload a PDF, DOCX, Markdown or text file and it is parsed, chunked, embedded and stored in pgvector.
+
+```
+POST /documents (multipart)          worker (BackgroundService)
+  validate → store blob → one DB     claim (SKIP LOCKED) → Redis lock → parse → chunk
+  transaction: document + outbox  ─▶ → embed → replace chunks → Ready ─▶ SignalR push
+```
+
+| Concern | Behaviour |
+|---|---|
+| Upload checks | Size limit (`Storage:MaxUploadBytes`, default 25 MB, 413), extension allow-list (415), **content signature must match the type** (a renamed executable is rejected, 400), empty files rejected, directory parts of the file name dropped. Files are stored under random keys, so a file name can never reach the file system. |
+| Transactional outbox | The document row and its ingestion job are written in **one transaction**, so an upload can never be saved yet never processed. If the save fails the stored file is removed. |
+| Queue | The `outbox_messages` table is the queue. Workers claim with `FOR UPDATE SKIP LOCKED` and a time-limited lease, so any number of instances can run concurrently without double-processing, and a crashed worker's claim simply expires. At-least-once delivery; processing is idempotent (chunks are *replaced*). |
+| Retries | Transient failures retry with exponential backoff and jitter (`Ingestion:RetryBaseSeconds`, `MaxAttempts`). Permanent ones (corrupt file, no text) fail the document immediately without burning retries. |
+| Dead letter | When attempts run out the message is parked (`dead_at`, `last_error`) and the document shows **Failed** with a reason. **Reprocess** (`POST .../documents/{id}/reprocess`) re-queues it. |
+| Redis lock | One worker per document at a time, with a compare-and-delete release so an expired lock is never released by its old owner. |
+| Search | Chunks hold a 384-d `vector` with an **HNSW cosine index**. Chunking is paragraph-then-sentence aware with overlap (`Ingestion:ChunkSizeChars`, `ChunkOverlapChars`). |
+| Live status | SignalR hub at `/hubs/ingestion` (Redis backplane, so a worker on one instance reaches a browser on another). Subscribing needs read access to the workspace (same rules as the REST API). The UI shows upload progress, live status, and falls back to polling if the socket is down. |
+| Deleting | Soft-deletes the document and removes its chunks and the stored file. |
+
+Notes:
+- **Embeddings are a deterministic hashing stand-in** (`HashingEmbeddingClient`): offline, no API key, similar *wording* scores close, but it has no semantic understanding. Phase 5 swaps in a real model behind `IEmbeddingClient`.
+- The worker runs inside the API process by default. Set `Ingestion:WorkerEnabled=false` on API-only instances to run workers separately.
+- The queue is Postgres rather than Hangfire/MassTransit on purpose: Postgres is already the system of record, so enqueueing is transactional (no dual write to a second system) and there is one fewer moving part. The `IIngestionNotifier`, `IBlobStorage`, `IDistributedLock` and `IEmbeddingClient` seams keep these choices swappable.
+- Blob storage is local disk (`Storage:RootPath`, a volume in Compose). The `IBlobStorage` interface is the place to add S3/MinIO.
 
 ## Authentication and multi-tenancy
 Sign-in is OpenID Connect (Authorization Code + PKCE) against **Keycloak**; the API only validates bearer JWTs

@@ -56,6 +56,9 @@ services:
       Auth__Authority: http://localhost:${KEYCLOAK_PORT:-8081}/realms/kb
       Auth__MetadataAddress: http://keycloak:8080/realms/kb/.well-known/openid-configuration
       Auth__RequireHttpsMetadata: "false"
+      Storage__RootPath: /data/blobs
+    volumes:
+      - blobdata:/data/blobs
     ports:
       - "8080:8080"
     depends_on:
@@ -68,3 +71,4 @@ services:
 
 volumes:
   pgdata:
+  blobdata:

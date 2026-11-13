@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -21,6 +22,7 @@ namespace Infrastructure.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "9.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Domain.AuditLog", b =>
@@ -88,6 +90,16 @@ namespace Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("ChunkCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("chunk_count");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -101,6 +113,11 @@ namespace Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("failure_reason");
 
                     b.Property<string>("FileName")
                         .IsRequired()
@@ -126,6 +143,12 @@ namespace Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("status");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("storage_key");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -157,6 +180,123 @@ namespace Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_documents_workspace_id_created_at");
 
                     b.ToTable("documents", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.DocumentChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("document_id");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector(384)")
+                        .HasColumnName("embedding");
+
+                    b.Property<int>("Index")
+                        .HasColumnType("integer")
+                        .HasColumnName("index");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_document_chunks");
+
+                    b.HasIndex("Embedding")
+                        .HasDatabaseName("ix_document_chunks_embedding");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
+
+                    b.HasIndex("DocumentId", "Index")
+                        .IsUnique()
+                        .HasDatabaseName("ix_document_chunks_document_id_index");
+
+                    b.HasIndex("TenantId", "WorkspaceId")
+                        .HasDatabaseName("ix_document_chunks_tenant_id_workspace_id");
+
+                    b.ToTable("document_chunks", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.OutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("DeadAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dead_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_until");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload");
+
+                    b.Property<DateTimeOffset?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_outbox_messages");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("ix_outbox_messages_next_attempt_at")
+                        .HasFilter("processed_at IS NULL AND dead_at IS NULL");
+
+                    b.ToTable("outbox_messages", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Workspace", b =>
@@ -260,6 +400,16 @@ namespace Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_documents_workspaces_workspace_id");
+                });
+
+            modelBuilder.Entity("Domain.DocumentChunk", b =>
+                {
+                    b.HasOne("Domain.Document", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_document_chunks_documents_document_id");
                 });
 
             modelBuilder.Entity("Domain.WorkspaceMember", b =>
