@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: kb_dev_password
       POSTGRES_DB: kb
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -21,12 +21,28 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6380}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Local identity provider. Dev only: start-dev mode, throwaway admin, users imported from the realm file.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin_dev_password
+      # Browsers and the API must agree on the issuer, so pin it; the API may still reach Keycloak by service name.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8081}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./infra/keycloak/kb-realm.json:/opt/keycloak/data/import/kb-realm.json:ro
 
   api:
     profiles: ["full"]
@@ -36,6 +52,10 @@ services:
     environment:
       Database__ConnectionString: Host=postgres;Port=5432;Database=kb;Username=kb;Password=kb_dev_password
       Redis__ConnectionString: redis:6379
+      Database__MigrateOnStartup: "true"
+      Auth__Authority: http://localhost:${KEYCLOAK_PORT:-8081}/realms/kb
+      Auth__MetadataAddress: http://keycloak:8080/realms/kb/.well-known/openid-configuration
+      Auth__RequireHttpsMetadata: "false"
     ports:
       - "8080:8080"
     depends_on:
@@ -43,6 +63,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      keycloak:
+        condition: service_started
 
 volumes:
   pgdata:

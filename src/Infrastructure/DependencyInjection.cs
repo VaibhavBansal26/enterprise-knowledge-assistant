@@ -1,6 +1,11 @@
+using Application.Abstractions;
+using Infrastructure.Auditing;
+using Infrastructure.Persistence;
+using Infrastructure.Redis;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using StackExchange.Redis;
 
@@ -20,16 +25,49 @@ public static class DependencyInjection
             .Bind(config.GetSection(RedisOptions.SectionName))
             .ValidateDataAnnotations();
 
-        var db = config.GetSection(DatabaseOptions.SectionName).Get<DatabaseOptions>() ?? new();
-        var redis = config.GetSection(RedisOptions.SectionName).Get<RedisOptions>() ?? new();
+        // Connection details are resolved lazily from options, so configuration
+        // overrides (tests, environment variables) always take effect.
+        services.AddSingleton(sp =>
+        {
+            var builder = new NpgsqlDataSourceBuilder(
+                sp.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString);
+            // Required to map Dictionary<string,string> (document metadata) to jsonb.
+            builder.EnableDynamicJson();
+            return builder.Build();
+        });
+        services.AddSingleton<IConnectionMultiplexer>(sp =>
+        {
+            var redis = ConfigurationOptions.Parse(
+                sp.GetRequiredService<IOptions<RedisOptions>>().Value.ConnectionString);
+            redis.AbortOnConnectFail = false; // start even if Redis is briefly down; /health/ready reports it
+            redis.ConnectTimeout = 2000;
+            redis.SyncTimeout = 1000;
+            redis.AsyncTimeout = 1000; // fail fast so a Redis outage cannot stall every request
+            return ConnectionMultiplexer.Connect(redis);
+        });
 
-        services.AddNpgsqlDataSource(db.ConnectionString);
-        services.AddSingleton<IConnectionMultiplexer>(_ =>
-            ConnectionMultiplexer.Connect(redis.ConnectionString + ",abortConnect=false"));
+        services.AddOptionsWithValidateOnStart<RateLimitOptions>()
+            .Bind(config.GetSection(RateLimitOptions.SectionName))
+            .ValidateDataAnnotations();
+        services.AddOptionsWithValidateOnStart<IdempotencyOptions>()
+            .Bind(config.GetSection(IdempotencyOptions.SectionName))
+            .ValidateDataAnnotations();
+        services.AddSingleton<IRateLimiter, RedisRateLimiter>();
+        services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
+
+        // One tenant holder per request; the middleware sets it and the DbContext's query filters read it.
+        services.AddScoped<TenantContext>();
+        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        services.AddScoped<AuditSaveChangesInterceptor>();
+
+        services.AddDbContext<AppDbContext>((sp, options) => options
+            .UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>())
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>()));
 
         services.AddHealthChecks()
-            .AddNpgSql(db.ConnectionString, name: "postgres", tags: [ReadyTag])
-            .AddRedis(redis.ConnectionString, name: "redis", tags: [ReadyTag]);
+            .AddNpgSql(sp => sp.GetRequiredService<NpgsqlDataSource>(), name: "postgres", tags: [ReadyTag])
+            .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>(), name: "redis", tags: [ReadyTag]);
 
         return services;
     }

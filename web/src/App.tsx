@@ -1,35 +1,44 @@
+import { Link, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "./auth/AuthProvider";
+import { AuditPage } from "./pages/AuditPage";
+import { WorkspaceDetailPage } from "./pages/WorkspaceDetailPage";
+import { WorkspacesPage } from "./pages/WorkspacesPage";
 
-async function fetchStatus(path: string): Promise<string> {
-  const res = await fetch(path);
-  return res.ok ? "healthy" : `unhealthy (${res.status})`;
-}
-
-function StatusRow({ label, path }: { label: string; path: string }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["status", path],
-    queryFn: () => fetchStatus(path),
+function BackendStatus() {
+  const { data, isError } = useQuery({
+    queryKey: ["status", "ready"],
+    queryFn: async () => (await fetch("/health/ready")).ok,
     refetchInterval: 10_000,
     retry: false,
   });
-
-  const text = isLoading ? "checking…" : isError ? "unreachable" : data;
-  return (
-    <li>
-      {label}: <strong>{text}</strong>
-    </li>
-  );
+  const label = isError ? "API unreachable" : data ? "API ready" : "API degraded";
+  return <small style={{ color: data ? "#2e7d32" : "#b00020" }}>● {label}</small>;
 }
 
 export function App() {
+  const { username, roles, isAdmin, signOut } = useAuth();
+
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 640, margin: "4rem auto" }}>
-      <h1>Knowledge Assistant</h1>
-      <p>Phase 0 skeleton. Backend status:</p>
-      <ul>
-        <StatusRow label="Liveness" path="/health/live" />
-        <StatusRow label="Readiness (Postgres + Redis)" path="/health/ready" />
-      </ul>
+    <main style={{ fontFamily: "system-ui", maxWidth: 760, margin: "2rem auto", padding: "0 1rem" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h1>Knowledge Assistant</h1>
+        <BackendStatus />
+      </header>
+      <div
+        style={{ display: "flex", gap: "1rem", alignItems: "baseline", marginBottom: "1rem", color: "#444" }}
+      >
+        <span data-testid="whoami">
+          Signed in as <strong>{username}</strong> ({roles.join(", ") || "no role"})
+        </span>
+        {isAdmin && <Link to="/audit">Audit log</Link>}
+        <button onClick={signOut}>Sign out</button>
+      </div>
+      <Routes>
+        <Route path="/" element={<WorkspacesPage />} />
+        <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
+        <Route path="/audit" element={<AuditPage />} />
+      </Routes>
     </main>
   );
 }

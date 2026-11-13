@@ -1,10 +1,9 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Api.Tests;
 
-public sealed class HealthTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+[Collection(ApiFixtureGroup.Name)]
+public sealed class HealthTests(ApiFactory factory)
 {
     [Fact]
     public async Task Liveness_returns_200_without_touching_dependencies()
@@ -23,6 +22,6 @@ public sealed class HealthTests(WebApplicationFactory<Program> factory)
 
         var body = await client.GetStringAsync("/api/v1/ping");
 
-        Assert.Contains("pong", body);
+        Assert.Contains("pong", body, StringComparison.Ordinal);
     }
 }
