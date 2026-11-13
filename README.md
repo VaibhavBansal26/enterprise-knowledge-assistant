@@ -5,24 +5,44 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Phase 0 (foundations) scaffolded. See [ROADMAP.md](ROADMAP.md).
+Phase 0 (foundations) and Phase 1 (CRUD and data layer) done. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 ```bash
-# Postgres (pgvector) + Redis
+# Postgres (pgvector) on :5433 and Redis on :6380
+# (non-default host ports avoid clashing with locally installed services;
+#  override with POSTGRES_PORT / REDIS_PORT)
 docker compose up -d
 
-# API (needs .NET 9 SDK) -> http://localhost:5000 (see launch output)
-dotnet run --project src/Api
+# API on :8080 (needs .NET 9 SDK); applies EF migrations in Development
+ASPNETCORE_URLS=http://localhost:8080 dotnet run --project src/Api
 
-# Web -> http://localhost:5173
+# Web on :5173 (proxies /api and /health to :8080)
 cd web && npm install && npm run dev
 ```
 Run everything in containers: `docker compose --profile full up --build` (API on :8080).
 
-Health endpoints: `/health/live` (process up), `/health/ready` (Postgres + Redis reachable).
+## API (v1)
+| Resource | Endpoints |
+|---|---|
+| Workspaces | `POST/GET /api/v1/workspaces`, `GET/PUT/DELETE /api/v1/workspaces/{id}` |
+| Documents | `POST/GET /api/v1/workspaces/{workspaceId}/documents`, `GET/PUT/DELETE .../{id}` |
 
-Tests: `dotnet test`
+- Lists take `page`, `pageSize` (max 100), `q` (case-insensitive search) and `sort` (`name`, `title`, `createdAt`; prefix `-` for descending).
+- Deletes are soft. Updates use optimistic concurrency: send the `version` you read, get `409` if it is stale.
+- Errors are RFC 7807 ProblemDetails; validation failures return `400` with per-field errors.
+- Health: `/health/live` (process up), `/health/ready` (Postgres + Redis reachable).
+
+## Tests
+```bash
+dotnet test   # integration tests start a throwaway Postgres via Testcontainers, so Docker must be running
+```
+
+## Migrations
+```bash
+dotnet tool install --global dotnet-ef
+dotnet ef migrations add <Name> -p src/Infrastructure -s src/Api -o Persistence/Migrations
+```
 
 ## Planned structure
 ```
