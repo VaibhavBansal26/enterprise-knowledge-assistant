@@ -11,3 +11,4 @@ appsettings.*.local.json
 .DS_Store
 .idea/
 .vscode/
+*.tsbuildinfo

@@ -6,6 +6,7 @@ COPY src/Application/Application.csproj src/Application/
 COPY src/Infrastructure/Infrastructure.csproj src/Infrastructure/
 COPY src/Api/Api.csproj src/Api/
 COPY tests/Api.Tests/Api.Tests.csproj tests/Api.Tests/
+COPY tests/Architecture.Tests/Architecture.Tests.csproj tests/Architecture.Tests/
 RUN dotnet restore
 COPY src/ src/
 RUN dotnet publish src/Api/Api.csproj -c Release -o /app --no-restore

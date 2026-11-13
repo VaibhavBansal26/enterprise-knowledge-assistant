@@ -1,8 +1,11 @@
+using System.Security.Claims;
+using Api.Auth;
 using Api.Web;
 using Application.Common;
 using Application.Documents;
 using Domain;
 using Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Endpoints;
@@ -11,30 +14,41 @@ public static class DocumentEndpoints
 {
     public static IEndpointRouteBuilder MapDocumentEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/workspaces/{workspaceId:guid}/documents").WithTags("Documents");
+        var group = app.MapGroup("/api/v1/workspaces/{workspaceId:guid}/documents")
+            .WithTags("Documents")
+            .RequireAuthorization(Policies.Read);
 
-        group.MapPost("/", Create).AddEndpointFilter<ValidationFilter<CreateDocumentRequest>>();
+        group.MapPost("/", Create)
+            .RequireAuthorization(Policies.Write)
+            .AddEndpointFilter<ValidationFilter<CreateDocumentRequest>>();
         group.MapGet("/", List).AddEndpointFilter<ValidationFilter<ListQuery>>();
         group.MapGet("/{id:guid}", Get);
-        group.MapPut("/{id:guid}", Update).AddEndpointFilter<ValidationFilter<UpdateDocumentRequest>>();
-        group.MapDelete("/{id:guid}", Delete);
+        group.MapPut("/{id:guid}", Update)
+            .RequireAuthorization(Policies.Write)
+            .AddEndpointFilter<ValidationFilter<UpdateDocumentRequest>>();
+        group.MapDelete("/{id:guid}", Delete).RequireAuthorization(Policies.Write);
 
         return app;
     }
 
-    private static IResult WorkspaceNotFound() => Results.Problem(statusCode: 404, title: "Workspace not found");
-
     private static IResult DocumentNotFound() => Results.Problem(statusCode: 404, title: "Document not found");
 
     private static async Task<IResult> Create(
-        Guid workspaceId, CreateDocumentRequest request, AppDbContext db, CancellationToken ct)
+        Guid workspaceId,
+        CreateDocumentRequest request,
+        AppDbContext db,
+        IAuthorizationService authorization,
+        ClaimsPrincipal user,
+        CancellationToken ct)
     {
-        if (!await db.Workspaces.AnyAsync(w => w.Id == workspaceId, ct))
+        var (workspace, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: true, track: false, db, authorization, user, ct);
+        if (error is not null)
         {
-            return WorkspaceNotFound();
+            return error;
         }
 
         var document = new Document(
+            workspace!.TenantId,
             workspaceId,
             request.Title.Trim(),
             request.FileName.Trim(),
@@ -48,11 +62,17 @@ public static class DocumentEndpoints
     }
 
     private static async Task<IResult> List(
-        Guid workspaceId, [AsParameters] ListQuery list, AppDbContext db, CancellationToken ct)
+        Guid workspaceId,
+        [AsParameters] ListQuery list,
+        AppDbContext db,
+        IAuthorizationService authorization,
+        ClaimsPrincipal user,
+        CancellationToken ct)
     {
-        if (!await db.Workspaces.AnyAsync(w => w.Id == workspaceId, ct))
+        var (_, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: false, track: false, db, authorization, user, ct);
+        if (error is not null)
         {
-            return WorkspaceNotFound();
+            return error;
         }
 
         IQueryable<Document> query = db.Documents.AsNoTracking().Where(d => d.WorkspaceId == workspaceId);
@@ -84,16 +104,40 @@ public static class DocumentEndpoints
         return Results.Ok(await query.ToPagedAsync(list, ToResponse, ct));
     }
 
-    private static async Task<IResult> Get(Guid workspaceId, Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Get(
+        Guid workspaceId,
+        Guid id,
+        AppDbContext db,
+        IAuthorizationService authorization,
+        ClaimsPrincipal user,
+        CancellationToken ct)
     {
+        var (_, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: false, track: false, db, authorization, user, ct);
+        if (error is not null)
+        {
+            return error;
+        }
+
         var document = await db.Documents.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == id && d.WorkspaceId == workspaceId, ct);
         return document is null ? DocumentNotFound() : Results.Ok(ToResponse(document));
     }
 
     private static async Task<IResult> Update(
-        Guid workspaceId, Guid id, UpdateDocumentRequest request, AppDbContext db, CancellationToken ct)
+        Guid workspaceId,
+        Guid id,
+        UpdateDocumentRequest request,
+        AppDbContext db,
+        IAuthorizationService authorization,
+        ClaimsPrincipal user,
+        CancellationToken ct)
     {
+        var (_, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: true, track: false, db, authorization, user, ct);
+        if (error is not null)
+        {
+            return error;
+        }
+
         var document = await db.Documents.FirstOrDefaultAsync(d => d.Id == id && d.WorkspaceId == workspaceId, ct);
         if (document is null)
         {
@@ -107,8 +151,20 @@ public static class DocumentEndpoints
         return Results.Ok(ToResponse(document));
     }
 
-    private static async Task<IResult> Delete(Guid workspaceId, Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Delete(
+        Guid workspaceId,
+        Guid id,
+        AppDbContext db,
+        IAuthorizationService authorization,
+        ClaimsPrincipal user,
+        CancellationToken ct)
     {
+        var (_, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: true, track: false, db, authorization, user, ct);
+        if (error is not null)
+        {
+            return error;
+        }
+
         var document = await db.Documents.FirstOrDefaultAsync(d => d.Id == id && d.WorkspaceId == workspaceId, ct);
         if (document is null)
         {

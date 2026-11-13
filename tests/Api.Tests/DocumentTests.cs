@@ -9,7 +9,7 @@ namespace Api.Tests;
 [Collection(ApiFixtureGroup.Name)]
 public sealed class DocumentTests(ApiFactory factory)
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.AdminClient();
 
     private async Task<Guid> CreateWorkspaceAsync()
     {

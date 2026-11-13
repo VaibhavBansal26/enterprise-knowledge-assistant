@@ -8,7 +8,7 @@ namespace Api.Tests;
 [Collection(ApiFixtureGroup.Name)]
 public sealed class WorkspaceTests(ApiFactory factory)
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.AdminClient();
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 

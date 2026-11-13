@@ -1,4 +1,7 @@
+using Application.Abstractions;
+using Infrastructure.Auditing;
 using Infrastructure.Persistence;
+using Infrastructure.Redis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,12 +36,34 @@ public static class DependencyInjection
             return builder.Build();
         });
         services.AddSingleton<IConnectionMultiplexer>(sp =>
-            ConnectionMultiplexer.Connect(
-                sp.GetRequiredService<IOptions<RedisOptions>>().Value.ConnectionString + ",abortConnect=false"));
+        {
+            var redis = ConfigurationOptions.Parse(
+                sp.GetRequiredService<IOptions<RedisOptions>>().Value.ConnectionString);
+            redis.AbortOnConnectFail = false; // start even if Redis is briefly down; /health/ready reports it
+            redis.ConnectTimeout = 2000;
+            redis.SyncTimeout = 1000;
+            redis.AsyncTimeout = 1000; // fail fast so a Redis outage cannot stall every request
+            return ConnectionMultiplexer.Connect(redis);
+        });
+
+        services.AddOptionsWithValidateOnStart<RateLimitOptions>()
+            .Bind(config.GetSection(RateLimitOptions.SectionName))
+            .ValidateDataAnnotations();
+        services.AddOptionsWithValidateOnStart<IdempotencyOptions>()
+            .Bind(config.GetSection(IdempotencyOptions.SectionName))
+            .ValidateDataAnnotations();
+        services.AddSingleton<IRateLimiter, RedisRateLimiter>();
+        services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
+
+        // One tenant holder per request; the middleware sets it and the DbContext's query filters read it.
+        services.AddScoped<TenantContext>();
+        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        services.AddScoped<AuditSaveChangesInterceptor>();
 
         services.AddDbContext<AppDbContext>((sp, options) => options
             .UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>())
-            .UseSnakeCaseNamingConvention());
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>()));
 
         services.AddHealthChecks()
             .AddNpgSql(sp => sp.GetRequiredService<NpgsqlDataSource>(), name: "postgres", tags: [ReadyTag])

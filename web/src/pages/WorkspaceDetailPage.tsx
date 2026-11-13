@@ -2,13 +2,16 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DocumentItem } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
 import { ErrorMessage, Pager } from "../components";
+import { MembersPanel } from "./MembersPanel";
 
 const PAGE_SIZE = 10;
 
 export function WorkspaceDetailPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
+  const { canWrite, isAdmin } = useAuth();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [title, setTitle] = useState("");
@@ -69,6 +72,7 @@ export function WorkspaceDetailPage() {
       <p style={{ color: "#666" }}>{workspace.data?.description}</p>
 
       <h3>Documents</h3>
+      {canWrite && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -86,6 +90,7 @@ export function WorkspaceDetailPage() {
           Add
         </button>
       </form>
+      )}
       <ErrorMessage error={create.error} />
 
       <input
@@ -120,14 +125,16 @@ export function WorkspaceDetailPage() {
                 <span style={{ color: "#666", flex: 1 }}>
                   {d.fileName} · {d.status}
                 </span>
-                <button onClick={() => setEditing(d)}>Edit</button>
-                <button
-                  onClick={() => {
-                    if (confirm(`Delete document "${d.title}"?`)) remove.mutate(d.id);
-                  }}
-                >
-                  Delete
-                </button>
+                {canWrite && <button onClick={() => setEditing(d)}>Edit</button>}
+                {canWrite && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete document "${d.title}"?`)) remove.mutate(d.id);
+                    }}
+                  >
+                    Delete
+                  </button>
+                )}
               </span>
             )}
           </li>
@@ -143,6 +150,8 @@ export function WorkspaceDetailPage() {
           onPage={setPage}
         />
       )}
+
+      {isAdmin && <MembersPanel workspaceId={id} />}
     </section>
   );
 }
