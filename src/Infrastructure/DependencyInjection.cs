@@ -1,12 +1,18 @@
 using Application.Abstractions;
+using Application.Ingestion;
+using Microsoft.AspNetCore.SignalR;
 using Infrastructure.Auditing;
+using Infrastructure.Ingestion;
+using Infrastructure.Storage;
 using Infrastructure.Persistence;
 using Infrastructure.Redis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Pgvector.EntityFrameworkCore;
 using StackExchange.Redis;
 
 namespace Infrastructure;
@@ -33,6 +39,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString);
             // Required to map Dictionary<string,string> (document metadata) to jsonb.
             builder.EnableDynamicJson();
+            builder.UseVector(); // pgvector type mapping
             return builder.Build();
         });
         services.AddSingleton<IConnectionMultiplexer>(sp =>
@@ -61,9 +68,11 @@ public static class DependencyInjection
         services.AddScoped<AuditSaveChangesInterceptor>();
 
         services.AddDbContext<AppDbContext>((sp, options) => options
-            .UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>())
+            .UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>(), npgsql => npgsql.UseVector())
             .UseSnakeCaseNamingConvention()
             .AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>()));
+
+        AddIngestion(services, config);
 
         services.AddHealthChecks()
             .AddNpgSql(sp => sp.GetRequiredService<NpgsqlDataSource>(), name: "postgres", tags: [ReadyTag])
@@ -71,4 +80,47 @@ public static class DependencyInjection
 
         return services;
     }
+
+    private static void AddIngestion(IServiceCollection services, IConfiguration config)
+    {
+        services.AddOptionsWithValidateOnStart<StorageOptions>()
+            .Bind(config.GetSection(StorageOptions.SectionName))
+            .ValidateDataAnnotations();
+        services.AddOptionsWithValidateOnStart<IngestionOptions>()
+            .Bind(config.GetSection(IngestionOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        services.AddSingleton<IBlobStorage, FileSystemBlobStorage>();
+        services.AddSingleton<IDocumentTextExtractor, DocumentTextExtractor>();
+        services.AddSingleton<IEmbeddingClient, HashingEmbeddingClient>();
+        services.AddSingleton<IDistributedLock, RedisDistributedLock>();
+        services.AddSingleton<OutboxStore>();
+        services.AddScoped<DocumentIngestionProcessor>();
+        services.AddHostedService<OutboxWorker>();
+
+        // Hosts that can push to clients (the API's SignalR hub) replace this no-op.
+        services.TryAddSingleton<IIngestionNotifier, NullIngestionNotifier>();
+    }
+
+    /// <summary>Shares SignalR messages between API instances through Redis, so a worker on one instance can reach a client on another.</summary>
+    public static ISignalRServerBuilder AddRedisBackplane(this ISignalRServerBuilder signalR)
+    {
+        ArgumentNullException.ThrowIfNull(signalR);
+
+        signalR.AddStackExchangeRedis();
+        signalR.Services.AddOptions<Microsoft.AspNetCore.SignalR.StackExchangeRedis.RedisOptions>()
+            .Configure<IOptions<RedisOptions>>((backplane, redis) =>
+            {
+                backplane.Configuration = ConfigurationOptions.Parse(redis.Value.ConnectionString);
+                backplane.Configuration.AbortOnConnectFail = false;
+                backplane.Configuration.ChannelPrefix = RedisChannel.Literal("kb");
+            });
+        return signalR;
+    }
+}
+
+internal sealed class NullIngestionNotifier : IIngestionNotifier
+{
+    public Task DocumentStatusChangedAsync(DocumentStatusChanged change, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }

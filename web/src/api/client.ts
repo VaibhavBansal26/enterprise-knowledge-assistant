@@ -13,7 +13,9 @@ export interface DocumentItem {
   fileName: string;
   contentType: string;
   sizeBytes: number;
-  status: string;
+  status: "Pending" | "Processing" | "Ready" | "Failed";
+  chunkCount: number;
+  failureReason: string | null;
   metadata: Record<string, string>;
   createdAt: string;
   version: number;
@@ -73,6 +75,8 @@ export function setAuthHandlers(handlers: AuthHandlers) {
   auth = handlers;
 }
 
+export const getAccessToken = () => auth?.getToken();
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await auth?.getToken();
   const res = await fetch(path, {
@@ -124,15 +128,8 @@ export const api = {
 
   listDocuments: (workspaceId: string, p: ListParams) =>
     request<Paged<DocumentItem>>(`${ws}/${workspaceId}/documents?${qs(p)}`),
-  createDocument: (
-    workspaceId: string,
-    b: { title: string; fileName: string; contentType: string; sizeBytes: number },
-  ) =>
-    request<DocumentItem>(`${ws}/${workspaceId}/documents`, {
-      method: "POST",
-      headers: { "Idempotency-Key": crypto.randomUUID() },
-      body: JSON.stringify({ ...b, metadata: null }),
-    }),
+  reprocessDocument: (workspaceId: string, id: string) =>
+    request<DocumentItem>(`${ws}/${workspaceId}/documents/${id}/reprocess`, { method: "POST" }),
   updateDocument: (
     workspaceId: string,
     id: string,
@@ -160,3 +157,47 @@ export const api = {
     return request<Paged<AuditEntry>>(`/api/v1/audit?${s}`);
   },
 };
+
+/**
+ * Uploads a file with progress reporting. `fetch` cannot report upload progress, so this uses XMLHttpRequest.
+ * The Idempotency-Key makes a retry of the same upload safe (the server replays the first result).
+ */
+export async function uploadDocument(
+  workspaceId: string,
+  file: File,
+  title: string | undefined,
+  onProgress: (percent: number) => void,
+): Promise<DocumentItem> {
+  const token = await auth?.getToken();
+  const form = new FormData();
+  form.append("file", file);
+  if (title) form.append("title", title);
+
+  return new Promise<DocumentItem>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${ws}/${workspaceId}/documents`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.setRequestHeader("Idempotency-Key", crypto.randomUUID());
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Network error while uploading"));
+    xhr.onload = () => {
+      if (xhr.status === 401) auth?.onUnauthorized();
+      let body: { detail?: string; title?: string; errors?: Record<string, string[]> } | DocumentItem | null = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        body = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body as DocumentItem);
+      } else {
+        const problem = body as { detail?: string; title?: string; errors?: Record<string, string[]> } | null;
+        reject(new ApiError(xhr.status, problem?.detail ?? problem?.title ?? `Upload failed (${xhr.status})`, problem?.errors));
+      }
+    };
+    xhr.send(form);
+  });
+}

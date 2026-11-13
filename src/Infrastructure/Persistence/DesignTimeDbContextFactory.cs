@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Pgvector.EntityFrameworkCore;
 
 namespace Infrastructure.Persistence;
 
@@ -9,7 +10,7 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<App
     public AppDbContext CreateDbContext(string[] args)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql("Host=localhost;Database=kb_design_time")
+            .UseNpgsql("Host=localhost;Database=kb_design_time", npgsql => npgsql.UseVector())
             .UseSnakeCaseNamingConvention()
             .Options;
         return new AppDbContext(options, new TenantContext());

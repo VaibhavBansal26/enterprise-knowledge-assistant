@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Globalization;
 using Api.Auth;
 using Api.Endpoints;
+using Api.Hubs;
 using Api.Web;
 using Application.Abstractions;
+using Application.Ingestion;
 using FluentValidation;
 using Infrastructure;
 using Infrastructure.Persistence;
@@ -46,6 +48,9 @@ builder.Services.AddAppAuth(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddValidatorsFromAssemblyContaining<Application.AssemblyMarker>();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddSignalR().AddRedisBackplane();
+// Replaces the infrastructure's no-op: ingestion progress now reaches browsers through the hub.
+builder.Services.AddSingleton<IIngestionNotifier, SignalRIngestionNotifier>();
 
 var app = builder.Build();
 
@@ -105,6 +110,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapGet("/api/v1/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymous();
 app.MapAuditAndMeEndpoints();
 app.MapMemberEndpoints();
+app.MapHub<IngestionHub>(IngestionHub.Path);
 app.MapWorkspaceEndpoints();
 app.MapDocumentEndpoints();
 

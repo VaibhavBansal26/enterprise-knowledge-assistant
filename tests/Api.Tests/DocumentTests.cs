@@ -6,6 +6,7 @@ using Application.Workspaces;
 
 namespace Api.Tests;
 
+/// <summary>Document CRUD around the upload flow. (Ingestion itself is covered in <see cref="IngestionTests"/>.)</summary>
 [Collection(ApiFixtureGroup.Name)]
 public sealed class DocumentTests(ApiFactory factory)
 {
@@ -18,50 +19,38 @@ public sealed class DocumentTests(ApiFactory factory)
         return (await response.Content.ReadFromJsonAsync<WorkspaceResponse>())!.Id;
     }
 
-    private static CreateDocumentRequest NewDocument(string title, Dictionary<string, string>? metadata = null) =>
-        new(title, "file.pdf", "application/pdf", 1234, metadata);
-
-    private async Task<DocumentResponse> CreateAsync(Guid workspaceId, string title, Dictionary<string, string>? metadata = null)
-    {
-        var response = await _client.PostAsJsonAsync(
-            $"/api/v1/workspaces/{workspaceId}/documents", NewDocument(title, metadata));
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<DocumentResponse>())!;
-    }
-
     [Fact]
-    public async Task Create_persists_jsonb_metadata_and_starts_pending()
+    public async Task Upload_returns_201_with_location_and_starts_pending()
     {
         var workspaceId = await CreateWorkspaceAsync();
 
-        var created = await CreateAsync(workspaceId, "Handbook", new() { ["team"] = "hr", ["year"] = "2026" });
-        var fetched = await _client.GetFromJsonAsync<DocumentResponse>(
-            $"/api/v1/workspaces/{workspaceId}/documents/{created.Id}");
+        var response = await TestFiles.UploadAsync(_client, workspaceId, "Handbook.md", TestFiles.Markdown("# Hi\n\nHello"), title: "Employee handbook");
 
-        Assert.Equal("Pending", fetched!.Status);
-        Assert.Equal("hr", fetched.Metadata["team"]);
-        Assert.Equal("2026", fetched.Metadata["year"]);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<DocumentResponse>();
+        Assert.Equal("Employee handbook", created!.Title);
+        Assert.Equal("Handbook.md", created.FileName);
+        Assert.Equal("text/markdown", created.ContentType);
+        Assert.Equal("Pending", created.Status); // the shared host runs no worker
+        Assert.Equal($"/api/v1/workspaces/{workspaceId}/documents/{created.Id}", response.Headers.Location!.ToString());
     }
 
     [Fact]
-    public async Task Create_in_unknown_workspace_returns_404()
+    public async Task Upload_title_defaults_to_the_file_name()
     {
-        var response = await _client.PostAsJsonAsync(
-            $"/api/v1/workspaces/{Guid.NewGuid()}/documents", NewDocument("x"));
+        var workspaceId = await CreateWorkspaceAsync();
+
+        var created = await TestFiles.UploadOkAsync(_client, workspaceId, "Quarterly Report.md");
+
+        Assert.Equal("Quarterly Report", created.Title);
+    }
+
+    [Fact]
+    public async Task Upload_into_unknown_workspace_returns_404()
+    {
+        var response = await TestFiles.UploadAsync(_client, Guid.NewGuid());
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Create_validates_input()
-    {
-        var workspaceId = await CreateWorkspaceAsync();
-
-        var response = await _client.PostAsJsonAsync(
-            $"/api/v1/workspaces/{workspaceId}/documents",
-            new CreateDocumentRequest("", "f.pdf", "application/pdf", 0, null));
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -69,9 +58,9 @@ public sealed class DocumentTests(ApiFactory factory)
     {
         var a = await CreateWorkspaceAsync();
         var b = await CreateWorkspaceAsync();
-        await CreateAsync(a, "Alpha plan");
-        await CreateAsync(a, "Beta plan");
-        await CreateAsync(b, "Other workspace doc");
+        await TestFiles.UploadOkAsync(_client, a, "a1.md", title: "Alpha plan");
+        await TestFiles.UploadOkAsync(_client, a, "a2.md", title: "Beta plan");
+        await TestFiles.UploadOkAsync(_client, b, "b1.md", title: "Other workspace doc");
 
         var all = await _client.GetFromJsonAsync<PagedResult<DocumentResponse>>($"/api/v1/workspaces/{a}/documents");
         var filtered = await _client.GetFromJsonAsync<PagedResult<DocumentResponse>>(
@@ -86,7 +75,7 @@ public sealed class DocumentTests(ApiFactory factory)
     {
         var a = await CreateWorkspaceAsync();
         var b = await CreateWorkspaceAsync();
-        var doc = await CreateAsync(a, "Private");
+        var doc = await TestFiles.UploadOkAsync(_client, a);
 
         var response = await _client.GetAsync($"/api/v1/workspaces/{b}/documents/{doc.Id}");
 
@@ -97,14 +86,16 @@ public sealed class DocumentTests(ApiFactory factory)
     public async Task Update_and_stale_update_behave_with_optimistic_concurrency()
     {
         var workspaceId = await CreateWorkspaceAsync();
-        var doc = await CreateAsync(workspaceId, "Draft");
+        var doc = await TestFiles.UploadOkAsync(_client, workspaceId, title: "Draft");
         var url = $"/api/v1/workspaces/{workspaceId}/documents/{doc.Id}";
 
         var ok = await _client.PutAsJsonAsync(url, new UpdateDocumentRequest("Final", new Dictionary<string, string> { ["k"] = "v" }, doc.Version));
         var stale = await _client.PutAsJsonAsync(url, new UpdateDocumentRequest("Again", null, doc.Version));
 
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
-        Assert.Equal("Final", (await ok.Content.ReadFromJsonAsync<DocumentResponse>())!.Title);
+        var updated = await ok.Content.ReadFromJsonAsync<DocumentResponse>();
+        Assert.Equal("Final", updated!.Title);
+        Assert.Equal("v", updated.Metadata["k"]);
         Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
     }
 
@@ -112,7 +103,7 @@ public sealed class DocumentTests(ApiFactory factory)
     public async Task Delete_is_soft_and_hides_the_document()
     {
         var workspaceId = await CreateWorkspaceAsync();
-        var doc = await CreateAsync(workspaceId, "Temp");
+        var doc = await TestFiles.UploadOkAsync(_client, workspaceId);
         var url = $"/api/v1/workspaces/{workspaceId}/documents/{doc.Id}";
 
         var deleted = await _client.DeleteAsync(url);
