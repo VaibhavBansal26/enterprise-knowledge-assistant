@@ -3,7 +3,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <!-- Underscore-separated test names are intentional; test URIs are plain strings. -->
-    <NoWarn>$(NoWarn);CA1707;CA2234;CA1054;CA1056</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;CA2234;CA1054;CA1056;CA2000</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
@@ -11,6 +11,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.0" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.1.0" />
+    <PackageReference Include="Testcontainers.Redis" Version="4.1.0" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

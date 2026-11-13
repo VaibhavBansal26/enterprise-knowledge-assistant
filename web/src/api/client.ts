@@ -75,8 +75,13 @@ const ws = "/api/v1/workspaces";
 export const api = {
   listWorkspaces: (p: ListParams) => request<Paged<Workspace>>(`${ws}?${qs(p)}`),
   getWorkspace: (id: string) => request<Workspace>(`${ws}/${id}`),
+  // Creates carry an Idempotency-Key so a retry (flaky network, double click) cannot create duplicates.
   createWorkspace: (b: { name: string; description: string | null }) =>
-    request<Workspace>(ws, { method: "POST", body: JSON.stringify(b) }),
+    request<Workspace>(ws, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify(b),
+    }),
   updateWorkspace: (id: string, b: { name: string; description: string | null; version: number }) =>
     request<Workspace>(`${ws}/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deleteWorkspace: (id: string) => request<void>(`${ws}/${id}`, { method: "DELETE" }),
@@ -89,6 +94,7 @@ export const api = {
   ) =>
     request<DocumentItem>(`${ws}/${workspaceId}/documents`, {
       method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({ ...b, metadata: null }),
     }),
   updateDocument: (

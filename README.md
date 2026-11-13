@@ -5,7 +5,7 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Phase 0 (foundations) and Phase 1 (CRUD and data layer) done. See [ROADMAP.md](ROADMAP.md).
+Phases 0 (foundations), 1 (CRUD and data layer) and 2 (middleware) done. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 ```bash
@@ -33,9 +33,23 @@ Run everything in containers: `docker compose --profile full up --build` (API on
 - Errors are RFC 7807 ProblemDetails; validation failures return `400` with per-field errors.
 - Health: `/health/live` (process up), `/health/ready` (Postgres + Redis reachable).
 
+## Cross-cutting behaviour
+Request pipeline, in order: correlation ID → exception handling → request logging → security headers → compression → CORS → rate limiting → idempotency → endpoints.
+
+| Concern | Behaviour |
+|---|---|
+| Correlation ID | Reuses a well-formed inbound `X-Correlation-Id`, otherwise generates one; echoed on the response, attached to every log line and to ProblemDetails (`correlationId`). |
+| Errors | Unhandled exceptions return a generic 500 ProblemDetails (details only in logs). Stale updates return 409. |
+| Logging | Serilog request logging with sensitive query values (`token`, `key`, `password`, ...) masked. Health probes log at Verbose. |
+| Security headers | `nosniff`, frame denial, `no-referrer`, locked-down CSP; HSTS outside Development. |
+| CORS | Allow-list from `Cors:AllowedOrigins` (default `http://localhost:5173`). |
+| Rate limiting | Fixed window per client IP, stored in Redis so it holds across instances (`RateLimiting:*`). 429 with `Retry-After`. Health probes exempt. Fails open if Redis is down. |
+| Idempotency | `POST` with `Idempotency-Key` replays the first response (`Idempotent-Replayed: true`); same key with a different body gets 422; a concurrent duplicate gets 409; 5xx responses are not stored. Fails closed (503) if Redis is down. |
+| Limits | Request bodies capped at 1 MB (upload endpoints will raise this in Phase 4). |
+
 ## Tests
 ```bash
-dotnet test   # integration tests start a throwaway Postgres via Testcontainers, so Docker must be running
+dotnet test   # integration tests start throwaway Postgres and Redis via Testcontainers, so Docker must be running
 ```
 
 ## Migrations

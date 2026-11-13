@@ -8,7 +8,9 @@ export function ErrorMessage({ error }: { error: unknown }) {
     <div role="alert" style={{ color: "#b00020", margin: "0.5rem 0" }}>
       {e.status === 409
         ? "Someone else changed this item. Reload and try again."
-        : (e.message ?? "Something went wrong")}
+        : e.status === 429
+          ? "Too many requests. Please wait a moment and try again."
+          : (e.message ?? "Something went wrong")}
       {fields.length > 0 && (
         <ul>
           {fields.map(([field, msgs]) => (
