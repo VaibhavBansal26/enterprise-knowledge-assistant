@@ -43,8 +43,10 @@ public sealed partial class IdempotencyMiddleware(
             return;
         }
 
-        // Scope the key to the endpoint so the same key on different routes does not collide.
-        var storeKey = $"{context.Request.Method}:{context.Request.Path}:{clientKey}";
+        // Scope the key to the caller and the endpoint: two users (or two routes) may reuse the same key
+        // value, and one user must never be able to replay another user's stored response.
+        var caller = context.User.FindFirst("sub")?.Value ?? "anonymous";
+        var storeKey = $"{caller}:{context.Request.Method}:{context.Request.Path}:{clientKey}";
         var fingerprint = await ComputeFingerprintAsync(context.Request);
 
         IdempotencyBeginResult begin;

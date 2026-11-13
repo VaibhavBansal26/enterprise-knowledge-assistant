@@ -29,7 +29,7 @@ public static class WebCorsExtensions
             cors.AddPolicy(WebCorsSettings.PolicyName, policy => policy
                 .WithOrigins(settings.Value.AllowedOrigins)
                 .WithMethods("GET", "POST", "PUT", "DELETE")
-                .WithHeaders("Content-Type", "Idempotency-Key", CorrelationIdMiddleware.HeaderName)
+                .WithHeaders("Content-Type", "Authorization", "Idempotency-Key", CorrelationIdMiddleware.HeaderName)
                 .WithExposedHeaders(
                     CorrelationIdMiddleware.HeaderName,
                     IdempotencyMiddleware.ReplayHeader,

@@ -19,6 +19,23 @@ export interface DocumentItem {
   version: number;
 }
 
+export interface Member {
+  userId: string;
+  role: "Viewer" | "Editor";
+  createdAt: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  userId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  changedFields: string | null;
+  correlationId: string | null;
+  occurredAt: string;
+}
+
 export interface Paged<T> {
   items: T[];
   page: number;
@@ -44,11 +61,30 @@ export class ApiError extends Error {
   }
 }
 
+interface AuthHandlers {
+  getToken: () => Promise<string | undefined>;
+  onUnauthorized: () => void;
+}
+
+let auth: AuthHandlers | null = null;
+
+/** Wired up by the AuthProvider so the client can attach tokens without depending on React. */
+export function setAuthHandlers(handlers: AuthHandlers) {
+  auth = handlers;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await auth?.getToken();
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
+
+  if (res.status === 401) auth?.onUnauthorized(); // token missing/expired: sign in again
 
   if (res.status === 204) return undefined as T;
 
@@ -108,4 +144,19 @@ export const api = {
     }),
   deleteDocument: (workspaceId: string, id: string) =>
     request<void>(`${ws}/${workspaceId}/documents/${id}`, { method: "DELETE" }),
+
+  listMembers: (workspaceId: string) => request<Member[]>(`${ws}/${workspaceId}/members`),
+  upsertMember: (workspaceId: string, userId: string, role: Member["role"]) =>
+    request<Member>(`${ws}/${workspaceId}/members/${encodeURIComponent(userId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    }),
+  removeMember: (workspaceId: string, userId: string) =>
+    request<void>(`${ws}/${workspaceId}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }),
+
+  listAudit: (p: { page: number; pageSize: number; entityType?: string }) => {
+    const s = new URLSearchParams({ page: String(p.page), pageSize: String(p.pageSize) });
+    if (p.entityType) s.set("entityType", p.entityType);
+    return request<Paged<AuditEntry>>(`/api/v1/audit?${s}`);
+  },
 };

@@ -1,4 +1,5 @@
 using Application.Abstractions;
+using Infrastructure.Auditing;
 using Infrastructure.Persistence;
 using Infrastructure.Redis;
 using Microsoft.EntityFrameworkCore;
@@ -54,9 +55,15 @@ public static class DependencyInjection
         services.AddSingleton<IRateLimiter, RedisRateLimiter>();
         services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
 
+        // One tenant holder per request; the middleware sets it and the DbContext's query filters read it.
+        services.AddScoped<TenantContext>();
+        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        services.AddScoped<AuditSaveChangesInterceptor>();
+
         services.AddDbContext<AppDbContext>((sp, options) => options
             .UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>())
-            .UseSnakeCaseNamingConvention());
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>()));
 
         services.AddHealthChecks()
             .AddNpgSql(sp => sp.GetRequiredService<NpgsqlDataSource>(), name: "postgres", tags: [ReadyTag])

@@ -1,0 +1,271 @@
+{
+  "realm": "kb",
+  "displayName": "Knowledge Assistant (dev)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Tenant administrator"
+      },
+      {
+        "name": "editor",
+        "description": "Can create and edit content"
+      },
+      {
+        "name": "viewer",
+        "description": "Read-only"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "kb-web",
+      "name": "Knowledge Assistant (web)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience-kb-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "included.custom.audience": "kb-api"
+          }
+        },
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "kb-dev-cli",
+      "name": "Dev smoke-test client (password grant)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience-kb-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "included.custom.audience": "kb-api"
+          }
+        },
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "alice@kb.test.invalid",
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "attributes": {
+        "tenant_id": [
+          "a0000000-0000-0000-0000-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice-dev-pw",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ],
+      "requiredActions": []
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "bob@kb.test.invalid",
+      "firstName": "Bob",
+      "lastName": "Editor",
+      "attributes": {
+        "tenant_id": [
+          "a0000000-0000-0000-0000-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob-dev-pw",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "editor"
+      ],
+      "requiredActions": []
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "carol@kb.test.invalid",
+      "firstName": "Carol",
+      "lastName": "Viewer",
+      "attributes": {
+        "tenant_id": [
+          "a0000000-0000-0000-0000-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "carol-dev-pw",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "viewer"
+      ],
+      "requiredActions": []
+    },
+    {
+      "username": "dave",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "dave@kb.test.invalid",
+      "firstName": "Dave",
+      "lastName": "Admin",
+      "attributes": {
+        "tenant_id": [
+          "b0000000-0000-0000-0000-000000000002"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dave-dev-pw",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ],
+      "requiredActions": []
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"multivalued\": false, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}}, {\"name\": \"email\", \"displayName\": \"${email}\", \"multivalued\": false, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"multivalued\": false, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"multivalued\": false, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"tenant_id\", \"displayName\": \"Tenant\", \"multivalued\": false, \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}}]}"
+          ],
+          "unmanagedAttributePolicy": [
+            "ENABLED"
+          ]
+        }
+      }
+    ]
+  }
+}

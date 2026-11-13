@@ -12,6 +12,6 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<App
             .UseNpgsql("Host=localhost;Database=kb_design_time")
             .UseSnakeCaseNamingConvention()
             .Options;
-        return new AppDbContext(options);
+        return new AppDbContext(options, new TenantContext());
     }
 }
