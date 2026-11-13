@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
+using Api.Auth;
 using Api.Endpoints;
 using Api.Web;
+using Application.Abstractions;
 using FluentValidation;
 using Infrastructure;
 using Infrastructure.Persistence;
@@ -38,6 +40,9 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 builder.Services.AddResponseCompression(); // Brotli + gzip; HTTPS compression stays off by default (BREACH)
 builder.Services.AddWebCors(builder.Configuration);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+builder.Services.AddAppAuth(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddValidatorsFromAssemblyContaining<Application.AssemblyMarker>();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -48,6 +53,8 @@ var app = builder.Build();
 // handler wraps everything after it; the rate limiter runs before the (costlier) idempotency check.
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
+// Turns body-less 401/403/404 responses (from auth, routing) into ProblemDetails like every other error.
+app.UseStatusCodePages();
 app.UseSerilogRequestLogging(o =>
 {
     o.MessageTemplate = "HTTP {RequestMethod} {RequestPath}{QueryString} responded {StatusCode} in {Elapsed:0.0000} ms";
@@ -69,12 +76,17 @@ if (!app.Environment.IsDevelopment())
 
 app.UseResponseCompression();
 app.UseCors(WebCorsSettings.PolicyName);
+app.UseAuthentication();
+app.UseMiddleware<TenantMiddleware>();
+// Rate limiting sits before authorization so unauthenticated floods are throttled too; idempotency sits
+// after it so a refused (401/403) request is never stored for replay.
 app.UseMiddleware<RateLimitMiddleware>();
+app.UseAuthorization();
 app.UseMiddleware<IdempotencyMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapOpenApi().AllowAnonymous();
 }
 
 if (app.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.MigrateOnStartup)
@@ -84,13 +96,15 @@ if (app.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.MigrateOn
 }
 
 // Liveness: process is up. Readiness: dependencies (Postgres, Redis) are reachable.
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains(DependencyInjection.ReadyTag)
-});
+}).AllowAnonymous();
 
-app.MapGet("/api/v1/ping", () => Results.Ok(new { message = "pong" }));
+app.MapGet("/api/v1/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymous();
+app.MapAuditAndMeEndpoints();
+app.MapMemberEndpoints();
 app.MapWorkspaceEndpoints();
 app.MapDocumentEndpoints();
 

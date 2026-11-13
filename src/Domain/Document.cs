@@ -8,12 +8,13 @@ public enum DocumentStatus
     Failed,
 }
 
-public sealed class Document : Entity, ISoftDeletable
+public sealed class Document : Entity, ISoftDeletable, ITenantOwned, IAuditable
 {
     // Required by EF Core.
     private Document() { }
 
     public Document(
+        Guid tenantId,
         Guid workspaceId,
         string title,
         string fileName,
@@ -21,6 +22,7 @@ public sealed class Document : Entity, ISoftDeletable
         long sizeBytes,
         IReadOnlyDictionary<string, string>? metadata)
     {
+        TenantId = tenantId;
         WorkspaceId = workspaceId;
         Title = title;
         FileName = fileName;
@@ -29,6 +31,7 @@ public sealed class Document : Entity, ISoftDeletable
         Metadata = metadata is null ? [] : new Dictionary<string, string>(metadata);
     }
 
+    public Guid TenantId { get; private set; }
     public Guid WorkspaceId { get; private set; }
     public string Title { get; private set; } = string.Empty;
     public string FileName { get; private set; } = string.Empty;

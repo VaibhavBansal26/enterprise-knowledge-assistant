@@ -10,7 +10,7 @@ namespace Api.Tests;
 [Collection(ApiFixtureGroup.Name)]
 public sealed partial class MiddlewareTests(ApiFactory factory)
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.AdminClient();
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
     private static partial Regex HexId();

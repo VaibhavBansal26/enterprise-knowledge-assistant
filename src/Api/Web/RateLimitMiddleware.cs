@@ -29,8 +29,11 @@ public sealed partial class RateLimitMiddleware(
         RateLimitResult result;
         try
         {
-            // Until authentication exists (Phase 3) the client address is the only identity available.
-            var clientKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            // Authenticated callers are limited per user (so one NAT'd office cannot starve itself, and a
+            // user cannot dodge the limit by changing address); anonymous callers per client address.
+            var clientKey = context.User.FindFirst("sub")?.Value is { Length: > 0 } sub
+                ? $"u:{sub}"
+                : $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
             result = await limiter.TryAcquireAsync(clientKey, context.RequestAborted);
         }
 #pragma warning disable CA1031 // Any limiter failure must fail open, never fail the request.

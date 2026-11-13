@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Workspace } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
 import { ErrorMessage, Pager } from "../components";
 
 const PAGE_SIZE = 10;
 
 export function WorkspacesPage() {
   const qc = useQueryClient();
+  const { canWrite, isAdmin } = useAuth();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("-createdAt");
@@ -49,6 +51,7 @@ export function WorkspacesPage() {
     <section>
       <h2>Workspaces</h2>
 
+      {canWrite && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -66,6 +69,7 @@ export function WorkspacesPage() {
           Create
         </button>
       </form>
+      )}
       <ErrorMessage error={create.error} />
 
       <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
@@ -87,7 +91,9 @@ export function WorkspacesPage() {
 
       {list.isLoading && <p>Loading…</p>}
       <ErrorMessage error={list.error} />
-      {list.data && list.data.items.length === 0 && <p>No workspaces yet.</p>}
+      {list.data && list.data.items.length === 0 && (
+        <p>{isAdmin ? "No workspaces yet." : "No workspaces yet. Ask an admin to add you to one."}</p>
+      )}
 
       <ul style={{ listStyle: "none", padding: 0 }}>
         {list.data?.items.map((w) => (
@@ -111,14 +117,16 @@ export function WorkspacesPage() {
                   <strong>{w.name}</strong>
                 </Link>
                 <span style={{ color: "#666", flex: 1 }}>{w.description}</span>
-                <button onClick={() => setEditing(w)}>Edit</button>
-                <button
-                  onClick={() => {
-                    if (confirm(`Delete workspace "${w.name}"?`)) remove.mutate(w.id);
-                  }}
-                >
-                  Delete
-                </button>
+                {canWrite && <button onClick={() => setEditing(w)}>Edit</button>}
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete workspace "${w.name}"?`)) remove.mutate(w.id);
+                    }}
+                  >
+                    Delete
+                  </button>
+                )}
               </span>
             )}
           </li>

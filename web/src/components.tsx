@@ -1,16 +1,25 @@
 import { ApiError } from "./api/client";
 
+function messageFor(e: ApiError): string {
+  switch (e.status) {
+    case 403:
+      return "You don't have permission to do that.";
+    case 409:
+      return "Someone else changed this item. Reload and try again.";
+    case 429:
+      return "Too many requests. Please wait a moment and try again.";
+    default:
+      return e.message ?? "Something went wrong";
+  }
+}
+
 export function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
   const e = error as ApiError;
   const fields = Object.entries(e.fieldErrors ?? {});
   return (
     <div role="alert" style={{ color: "#b00020", margin: "0.5rem 0" }}>
-      {e.status === 409
-        ? "Someone else changed this item. Reload and try again."
-        : e.status === 429
-          ? "Too many requests. Please wait a moment and try again."
-          : (e.message ?? "Something went wrong")}
+      {messageFor(e)}
       {fields.length > 0 && (
         <ul>
           {fields.map(([field, msgs]) => (
