@@ -14,7 +14,11 @@ namespace Infrastructure.Ingestion;
 /// </summary>
 public sealed class HashingEmbeddingClient : IEmbeddingClient
 {
+    public const string Model = "hashing-v1";
+
     private const int Dimensions = DocumentChunk.EmbeddingDimensions;
+
+    public string ModelId => Model;
 
     public Task<IReadOnlyList<float[]>> EmbedAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken)
     {

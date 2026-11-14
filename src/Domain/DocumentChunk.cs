@@ -9,7 +9,8 @@ public sealed class DocumentChunk : Entity, ITenantOwned
     // Required by EF Core.
     private DocumentChunk() { }
 
-    public DocumentChunk(Guid tenantId, Guid workspaceId, Guid documentId, int index, string content, float[] embedding)
+    public DocumentChunk(
+        Guid tenantId, Guid workspaceId, Guid documentId, int index, string content, float[] embedding, string embeddingModel)
     {
         if (embedding.Length != EmbeddingDimensions)
         {
@@ -23,6 +24,7 @@ public sealed class DocumentChunk : Entity, ITenantOwned
         Index = index;
         Content = content;
         Embedding = embedding;
+        EmbeddingModel = embeddingModel;
     }
 
     public Guid TenantId { get; private set; }
@@ -33,6 +35,12 @@ public sealed class DocumentChunk : Entity, ITenantOwned
     public int Index { get; private set; }
 
     public string Content { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Identifies the embedding model. Vectors from different models are not comparable, so search only
+    /// considers chunks embedded by the model currently in use (reprocess documents after switching).
+    /// </summary>
+    public string EmbeddingModel { get; private set; } = string.Empty;
 
 #pragma warning disable CA1819 // Embeddings are fixed-size numeric vectors; an array is the natural, mapped representation.
     public float[] Embedding { get; private set; } = [];

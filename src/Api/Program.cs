@@ -10,6 +10,7 @@ using FluentValidation;
 using Infrastructure;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Serilog;
@@ -40,7 +41,10 @@ builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
 builder.Services.AddExceptionHandler<ConcurrencyExceptionHandler>();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
-builder.Services.AddResponseCompression(); // Brotli + gzip; HTTPS compression stays off by default (BREACH)
+// Brotli + gzip; HTTPS compression stays off by default (BREACH). Event streams are never compressed: the
+// compressor would hold tokens back in its buffer and defeat streaming.
+builder.Services.AddResponseCompression(o =>
+    o.MimeTypes = ResponseCompressionDefaults.MimeTypes.Where(m => m != "text/event-stream").ToArray());
 builder.Services.AddWebCors(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
@@ -110,6 +114,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapGet("/api/v1/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymous();
 app.MapAuditAndMeEndpoints();
 app.MapMemberEndpoints();
+app.MapChatEndpoints();
 app.MapHub<IngestionHub>(IngestionHub.Path);
 app.MapWorkspaceEndpoints();
 app.MapDocumentEndpoints();

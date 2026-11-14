@@ -38,6 +38,52 @@ export interface AuditEntry {
   occurredAt: string;
 }
 
+export interface Citation {
+  number: number;
+  documentId: string;
+  workspaceId: string;
+  documentTitle: string;
+  chunkIndex: number;
+  snippet: string;
+}
+
+export interface Conversation {
+  id: string;
+  workspaceId: string | null;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: Citation[];
+  model: string | null;
+  promptVersion: string | null;
+  fromCache: boolean;
+  feedback: "up" | "down" | null;
+  createdAt: string;
+}
+
+export interface ConversationDetail {
+  conversation: Conversation;
+  messages: ChatMessage[];
+}
+
+export interface AnswerDone {
+  messageId: string;
+  content: string;
+  citations: Citation[];
+  model: string;
+  promptVersion: string;
+  fromCache: boolean;
+  grounded: boolean;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface Paged<T> {
   items: T[];
   page: number;
@@ -151,6 +197,17 @@ export const api = {
   removeMember: (workspaceId: string, userId: string) =>
     request<void>(`${ws}/${workspaceId}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }),
 
+  listConversations: (page = 1) => request<Paged<Conversation>>(`/api/v1/conversations?page=${page}&pageSize=50`),
+  createConversation: (workspaceId: string | null) =>
+    request<Conversation>("/api/v1/conversations", { method: "POST", body: JSON.stringify({ workspaceId, title: null }) }),
+  getConversation: (id: string) => request<ConversationDetail>(`/api/v1/conversations/${id}`),
+  deleteConversation: (id: string) => request<void>(`/api/v1/conversations/${id}`, { method: "DELETE" }),
+  setFeedback: (conversationId: string, messageId: string, rating: "up" | "down" | "none") =>
+    request<void>(`/api/v1/conversations/${conversationId}/messages/${messageId}/feedback`, {
+      method: "PUT",
+      body: JSON.stringify({ rating }),
+    }),
+
   listAudit: (p: { page: number; pageSize: number; entityType?: string }) => {
     const s = new URLSearchParams({ page: String(p.page), pageSize: String(p.pageSize) });
     if (p.entityType) s.set("entityType", p.entityType);
@@ -200,4 +257,71 @@ export async function uploadDocument(
     };
     xhr.send(form);
   });
+}
+
+export interface AnswerHandlers {
+  onSources: (sources: Citation[]) => void;
+  onDelta: (text: string) => void;
+  onDone: (done: AnswerDone) => void;
+  onError: (message: string) => void;
+}
+
+/**
+ * Asks a question and streams the answer. The response is Server-Sent Events over a POST, which `EventSource`
+ * cannot do (no body, no auth header), so the stream is read with `fetch` and parsed here. Aborting the signal
+ * closes the connection, which the server propagates all the way to the model call.
+ */
+export async function streamAnswer(
+  conversationId: string,
+  content: string,
+  handlers: AnswerHandlers,
+  signal: AbortSignal,
+): Promise<void> {
+  const token = await auth?.getToken();
+  const res = await fetch(`/api/v1/conversations/${conversationId}/messages`, {
+    method: "POST",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ content }),
+  });
+
+  if (res.status === 401) auth?.onUnauthorized();
+  if (!res.ok || !res.body) {
+    const problem = await res.json().catch(() => null);
+    throw new ApiError(res.status, problem?.detail ?? problem?.title ?? `Request failed (${res.status})`, problem?.errors ?? {});
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const dispatch = (raw: string) => {
+    let name = "";
+    let data = "";
+    for (const line of raw.split("\n")) {
+      if (line.startsWith("event: ")) name = line.slice(7);
+      else if (line.startsWith("data: ")) data += line.slice(6);
+    }
+    if (!name || !data) return;
+    const payload = JSON.parse(data);
+    if (name === "sources") handlers.onSources(payload.sources);
+    else if (name === "delta") handlers.onDelta(payload.text);
+    else if (name === "done") handlers.onDone(payload);
+    else if (name === "error") handlers.onError(payload.message);
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      dispatch(buffer.slice(0, end));
+      buffer = buffer.slice(end + 2);
+    }
+  }
 }

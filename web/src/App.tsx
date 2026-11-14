@@ -2,6 +2,7 @@ import { Link, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "./auth/AuthProvider";
 import { AuditPage } from "./pages/AuditPage";
+import { ChatPage } from "./pages/ChatPage";
 import { WorkspaceDetailPage } from "./pages/WorkspaceDetailPage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 
@@ -31,12 +32,15 @@ export function App() {
         <span data-testid="whoami">
           Signed in as <strong>{username}</strong> ({roles.join(", ") || "no role"})
         </span>
+        <Link to="/">Workspaces</Link>
+        <Link to="/chat">Chat</Link>
         {isAdmin && <Link to="/audit">Audit log</Link>}
         <button onClick={signOut}>Sign out</button>
       </div>
       <Routes>
         <Route path="/" element={<WorkspacesPage />} />
         <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
+        <Route path="/chat" element={<ChatPage />} />
         <Route path="/audit" element={<AuditPage />} />
       </Routes>
     </main>
