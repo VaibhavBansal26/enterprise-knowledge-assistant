@@ -1,3 +1,4 @@
+using Application.Chat;
 using Application.Ingestion;
 using Domain;
 using Infrastructure.Persistence;
@@ -28,6 +29,7 @@ public sealed partial class DocumentIngestionProcessor(
     IEmbeddingClient embeddings,
     IDistributedLock locks,
     IIngestionNotifier notifier,
+    ISemanticCache semanticCache,
     IOptions<IngestionOptions> options,
     ILogger<DocumentIngestionProcessor> logger)
 {
@@ -65,6 +67,7 @@ public sealed partial class DocumentIngestionProcessor(
             await tx.CommitAsync(ct);
 
             LogIngested(logger, documentId, chunks.Count);
+            await InvalidateCacheAsync(document.TenantId, ct);
         }
         catch (IngestionException ex) when (ex.IsPermanent)
         {
@@ -119,11 +122,26 @@ public sealed partial class DocumentIngestionProcessor(
             for (var i = 0; i < batch.Count; i++)
             {
                 chunks.Add(new DocumentChunk(
-                    document.TenantId, document.WorkspaceId, document.Id, offset + i, batch[i], vectors[i]));
+                    document.TenantId, document.WorkspaceId, document.Id, offset + i, batch[i], vectors[i], embeddings.ModelId));
             }
         }
 
         return chunks;
+    }
+
+    /// <summary>The tenant's searchable content changed, so cached answers may be stale. Best-effort.</summary>
+    private async Task InvalidateCacheAsync(Guid tenantId, CancellationToken ct)
+    {
+        try
+        {
+            await semanticCache.InvalidateAsync(tenantId, ct);
+        }
+#pragma warning disable CA1031 // A cache outage must not fail ingestion; entries also expire on their own.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+#pragma warning restore CA1031
+        {
+            LogCacheInvalidationFailed(logger, ex, tenantId);
+        }
     }
 
     private async Task Notify(Document document, CancellationToken ct)
@@ -156,6 +174,9 @@ public sealed partial class DocumentIngestionProcessor(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Document {DocumentId} failed permanently: {Reason}")]
     private static partial void LogPermanentFailure(ILogger logger, Guid documentId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not invalidate the semantic cache for tenant {TenantId}")]
+    private static partial void LogCacheInvalidationFailed(ILogger logger, Exception exception, Guid tenantId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not publish status for document {DocumentId}")]
     private static partial void LogNotifyFailed(ILogger logger, Exception exception, Guid documentId);

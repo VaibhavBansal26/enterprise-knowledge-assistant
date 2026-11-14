@@ -14,6 +14,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<DocumentChunk> Chunks => Set<DocumentChunk>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
 
     /// <summary>
     /// Read by the global query filters. Guid.Empty (no tenant) matches no rows, so a request that
@@ -75,6 +77,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
             b.ToTable("document_chunks");
             b.HasKey(x => x.Id);
             b.Property(x => x.Content).IsRequired();
+            b.Property(x => x.EmbeddingModel).HasMaxLength(100).IsRequired().HasDefaultValue("hashing-v1");
+            // Full-text index over the passage, maintained by Postgres itself (generated column).
+            b.Property<NpgsqlTypes.NpgsqlTsVector>("SearchVector")
+                .HasColumnName("search_vector")
+                .HasColumnType("tsvector")
+                .HasComputedColumnSql("to_tsvector('english', content)", stored: true);
+            b.HasIndex("SearchVector").HasMethod("GIN");
             b.Property(x => x.Embedding)
                 .HasColumnType($"vector({DocumentChunk.EmbeddingDimensions})")
                 .HasConversion(
@@ -90,6 +99,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
             b.HasIndex(x => new { x.TenantId, x.WorkspaceId });
             // Approximate nearest-neighbour index for cosine similarity search.
             b.HasIndex(x => x.Embedding).HasMethod("hnsw").HasOperators("vector_cosine_ops");
+        });
+
+        modelBuilder.Entity<Conversation>(b =>
+        {
+            b.ToTable("conversations");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.UserId).HasMaxLength(128).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasIndex(x => new { x.TenantId, x.UserId, x.UpdatedAt });
+        });
+
+        modelBuilder.Entity<ChatMessage>(b =>
+        {
+            b.ToTable("chat_messages");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
+            b.Property(x => x.Content).IsRequired();
+            b.Property(x => x.CitationsJson).HasColumnType("jsonb");
+            b.Property(x => x.Model).HasMaxLength(100);
+            b.Property(x => x.PromptVersion).HasMaxLength(50);
+            b.Property(x => x.Feedback).HasMaxLength(10);
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ConversationId, x.CreatedAt });
         });
 
         modelBuilder.Entity<OutboxMessage>(b =>

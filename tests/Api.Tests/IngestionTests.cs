@@ -108,6 +108,8 @@ public sealed class IngestionTests(ApiFactory factory)
         private int _calls;
         private readonly HashingEmbeddingClient _inner = new();
 
+        public string ModelId => _inner.ModelId;
+
         public int Calls => _calls;
 
         public Task<IReadOnlyList<float[]>> EmbedAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken) =>
