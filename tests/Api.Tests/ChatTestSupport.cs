@@ -59,9 +59,9 @@ public static class Sse
 }
 
 /// <summary>An LLM that records every request and can be told to misbehave, wrapping the offline extractive model.</summary>
-public sealed class RecordingLlm : ILlmClient
+public sealed class RecordingLlm(ILlmClient? inner = null) : ILlmClient
 {
-    private readonly ExtractiveLlmClient _inner = new();
+    private readonly ILlmClient _inner = inner ?? new ExtractiveLlmClient();
     private readonly List<LlmRequest> _requests = [];
 
     public IReadOnlyList<LlmRequest> Requests

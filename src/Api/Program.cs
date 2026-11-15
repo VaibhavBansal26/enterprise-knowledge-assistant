@@ -25,6 +25,8 @@ builder.Host.UseSerilog((ctx, cfg) => cfg
         outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{CorrelationId}] {Message:lj}{NewLine}{Exception}",
         formatProvider: CultureInfo.InvariantCulture));
 
+builder.WebHost.UseErrorTracking(builder.Environment.EnvironmentName);
+
 // JSON API: cap request bodies. Upload endpoints (Phase 4) raise this per endpoint.
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 1_048_576);
 
@@ -52,6 +54,8 @@ builder.Services.AddAppAuth(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddValidatorsFromAssemblyContaining<Application.AssemblyMarker>();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddObservability(builder.Configuration, builder.Environment.EnvironmentName);
+builder.Services.Configure<EvalsOptions>(builder.Configuration.GetSection(EvalsOptions.SectionName));
 builder.Services.AddSignalR().AddRedisBackplane();
 // Replaces the infrastructure's no-op: ingestion progress now reaches browsers through the hub.
 builder.Services.AddSingleton<IIngestionNotifier, SignalRIngestionNotifier>();
@@ -115,6 +119,7 @@ app.MapGet("/api/v1/ping", () => Results.Ok(new { message = "pong" })).AllowAnon
 app.MapAuditAndMeEndpoints();
 app.MapMemberEndpoints();
 app.MapChatEndpoints();
+app.MapOpsEndpoints();
 app.MapHub<IngestionHub>(IngestionHub.Path);
 app.MapWorkspaceEndpoints();
 app.MapDocumentEndpoints();

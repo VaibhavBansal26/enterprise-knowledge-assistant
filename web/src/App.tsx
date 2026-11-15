@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "./auth/AuthProvider";
 import { AuditPage } from "./pages/AuditPage";
 import { ChatPage } from "./pages/ChatPage";
+import { OpsPage } from "./pages/OpsPage";
 import { WorkspaceDetailPage } from "./pages/WorkspaceDetailPage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 
@@ -34,6 +35,7 @@ export function App() {
         </span>
         <Link to="/">Workspaces</Link>
         <Link to="/chat">Chat</Link>
+        {isAdmin && <Link to="/ops">Operations</Link>}
         {isAdmin && <Link to="/audit">Audit log</Link>}
         <button onClick={signOut}>Sign out</button>
       </div>
@@ -41,6 +43,7 @@ export function App() {
         <Route path="/" element={<WorkspacesPage />} />
         <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
         <Route path="/chat" element={<ChatPage />} />
+        <Route path="/ops" element={<OpsPage />} />
         <Route path="/audit" element={<AuditPage />} />
       </Routes>
     </main>

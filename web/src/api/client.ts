@@ -63,6 +63,8 @@ export interface ChatMessage {
   model: string | null;
   promptVersion: string | null;
   fromCache: boolean;
+  groundingScore: number | null;
+  lowGrounding: boolean;
   feedback: "up" | "down" | null;
   createdAt: string;
 }
@@ -82,6 +84,66 @@ export interface AnswerDone {
   grounded: boolean;
   inputTokens: number;
   outputTokens: number;
+  groundingScore: number;
+  lowGrounding: boolean;
+  injectionNeutralized: number;
+  piiRedactions: number;
+}
+
+export interface QuotaStatus {
+  monthlyTokenLimit: number | null;
+  monthlyCostLimitUsd: number | null;
+  tokensUsed: number;
+  costUsedUsd: number;
+  exceeded: boolean;
+  resetsAt: string;
+  isDefault: boolean;
+}
+
+export interface Latency {
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+export interface OpsSummary {
+  days: number;
+  outcomes: {
+    questions: number;
+    answered: number;
+    cached: number;
+    noSources: number;
+    refused: number;
+    error: number;
+    cancelled: number;
+    quotaExceeded: number;
+  };
+  latency: Latency;
+  firstToken: Latency;
+  inputTokens: number;
+  outputTokens: number;
+  totalCostUsd: number;
+  costPerQuestionUsd: number;
+  cacheHitRate: number;
+  noSourceRate: number;
+  errorRate: number;
+  averageGrounding: number | null;
+  lowGroundingAnswers: number;
+  injectionNeutralized: number;
+  piiRedactions: number;
+  daily: { day: string; questions: number; costUsd: number; p95LatencyMs: number }[];
+  models: { model: string; requests: number; inputTokens: number; outputTokens: number; costUsd: number }[];
+  topUsers: { userId: string; questions: number; costUsd: number }[];
+  quota: QuotaStatus;
+}
+
+export interface EvalReport {
+  ranAt: string;
+  provider: string;
+  cases: number;
+  passed: boolean;
+  metrics: { name: string; value: number; baseline: number | null; delta: number | null; status: string }[];
+  failures: string[];
 }
 
 export interface Paged<T> {
@@ -207,6 +269,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ rating }),
     }),
+
+  getOpsSummary: (days: number) => request<OpsSummary>(`/api/v1/admin/ops/summary?days=${days}`),
+  setQuota: (monthlyTokenLimit: number | null, monthlyCostLimitUsd: number | null) =>
+    request<QuotaStatus>("/api/v1/admin/quota", {
+      method: "PUT",
+      body: JSON.stringify({ monthlyTokenLimit, monthlyCostLimitUsd }),
+    }),
+  getLatestEvals: () => request<EvalReport>("/api/v1/admin/evals/latest"),
 
   listAudit: (p: { page: number; pageSize: number; entityType?: string }) => {
     const s = new URLSearchParams({ page: String(p.page), pageSize: String(p.pageSize) });

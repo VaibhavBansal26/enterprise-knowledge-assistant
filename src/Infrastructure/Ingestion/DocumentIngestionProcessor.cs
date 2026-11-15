@@ -1,5 +1,6 @@
 using Application.Chat;
 using Application.Ingestion;
+using Application.Telemetry;
 using Domain;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -50,6 +51,10 @@ public sealed partial class DocumentIngestionProcessor(
             return ProcessOutcome.Busy;
         }
 
+        using var span = AppTelemetry.Source.StartActivity("ingestion.process");
+        span?.SetTag("kb.document.id", documentId);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
         document.MarkProcessing();
         await db.SaveChangesAsync(ct);
         await Notify(document, ct);
@@ -67,6 +72,9 @@ public sealed partial class DocumentIngestionProcessor(
             await tx.CommitAsync(ct);
 
             LogIngested(logger, documentId, chunks.Count);
+            AppTelemetry.IngestionDuration.Record(clock.Elapsed.TotalMilliseconds);
+            AppTelemetry.IngestionOutcomes.Add(1, new KeyValuePair<string, object?>("outcome", "ready"));
+            span?.SetTag("kb.chunks", chunks.Count);
             await InvalidateCacheAsync(document.TenantId, ct);
         }
         catch (IngestionException ex) when (ex.IsPermanent)
@@ -75,6 +83,8 @@ public sealed partial class DocumentIngestionProcessor(
             db.ChangeTracker.Clear();
             await FailAsync(document.TenantId, documentId, ex.Message, ct);
             LogPermanentFailure(logger, documentId, ex.Message);
+            AppTelemetry.IngestionOutcomes.Add(1, new KeyValuePair<string, object?>("outcome", "failed"));
+            span?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
             return ProcessOutcome.Completed;
         }
 

@@ -5,7 +5,7 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy), 4 (ingestion) and 5 (RAG chat) done. See [ROADMAP.md](ROADMAP.md).
+Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy), 4 (ingestion), 5 (RAG chat), 6 (quality, safety, observability) and 7 (delivery tooling: images, load and E2E tests, runbook) done; a hosted deployment is still to do. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 ```bash
@@ -132,6 +132,35 @@ Request pipeline, in order: correlation ID → exception handling → status-cod
 | Rate limiting | Fixed window per client IP, stored in Redis so it holds across instances (`RateLimiting:*`). 429 with `Retry-After`. Health probes exempt. Fails open if Redis is down. |
 | Idempotency | `POST` with `Idempotency-Key` replays the first response (`Idempotent-Replayed: true`); same key with a different body gets 422; a concurrent duplicate gets 409; 5xx responses are not stored. Fails closed (503) if Redis is down. |
 | Limits | Request bodies capped at 1 MB (upload endpoints will raise this in Phase 4). |
+
+## Quality, safety and observability (Phase 6)
+
+**Safety (in the chat pipeline).** PII (emails, phones, card/SSN-like numbers) is masked before text reaches the LLM or the logs; injection phrases in retrieved documents are neutralised; a reply that echoes the system prompt is stopped; and each answer gets a *grounding score*, shown as a warning in the UI when low. The grounding check is a lexical-overlap heuristic, not an entailment model.
+
+**Usage and cost.** Every LLM and embedding call writes a row to a ledger (tokens, estimated cost, model, conversation). Prices live in `Pricing:Models` (unknown models are priced at a deliberately high fallback). Each workspace has a monthly quota (`Usage:DefaultMonthlyCostLimitUsd`, default 25; 0 disables); over-quota requests get 429. Admin endpoints: `GET /api/v1/admin/ops/summary`, `GET|PUT /api/v1/admin/quota`, `GET /api/v1/admin/evals/latest`, shown on the **Ops** page (p95 latency, cost per query, eval scores).
+
+**Telemetry.** OpenTelemetry traces and metrics (`kb.*` instruments) export over OTLP when `Telemetry__OtlpEndpoint` is set. Local dashboard:
+
+```bash
+docker compose --profile dashboard up -d        # Aspire dashboard on :18888
+Telemetry__OtlpEndpoint=http://localhost:4317 dotnet run --project src/Api
+```
+
+Sentry is enabled by setting `Sentry__Dsn`; headers and bodies are scrubbed before sending. It was verified only through the scrubber unit test, not against a live DSN.
+
+**Evals.** `evals/golden.json` is a golden Q&A set run against the offline stand-ins (no API keys). `dotnet test --filter Category=Eval` writes `evals/results/latest.{json,md}` and fails on any hard-gate violation (leak, injection, PII exposure), a metric below its floor, or a drop of more than 0.02 from `evals/baseline.json`. CI runs it on every PR. To accept a deliberate change, copy the new `latest.json` metrics into `baseline.json` in the same PR. The set is small and was tuned alongside the stand-ins, so it guards against regressions rather than measuring real-model quality.
+
+**Upgrade note.** The offline embedding is now `hashing-v2`; reprocess existing documents after upgrading.
+
+## Run it like production (Phase 7)
+
+```bash
+cp .env.example .env            # set the passwords
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# web on http://localhost:8088, sign in as alice / alice-dev-pw (sample realm, dev only)
+```
+
+Images: API, EF migrations bundle (runs before the API starts), and nginx-served web. Load tests (k6) are in `tests/load`, browser tests (Playwright) in `tests/e2e`, and both are described in the [runbook](docs/RUNBOOK.md) together with deploy, rollback, backups and incident steps. Architecture diagram: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); decision log: [docs/adr](docs/adr/README.md).
 
 ## Tests
 ```bash

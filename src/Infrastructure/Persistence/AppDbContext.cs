@@ -16,6 +16,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<UsageLedgerEntry> UsageLedger => Set<UsageLedgerEntry>();
+    public DbSet<TenantQuota> TenantQuotas => Set<TenantQuota>();
 
     /// <summary>
     /// Read by the global query filters. Guid.Empty (no tenant) matches no rows, so a request that
@@ -124,6 +126,28 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
             b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
             b.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.ConversationId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<UsageLedgerEntry>(b =>
+        {
+            b.ToTable("usage_ledger");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.UserId).HasMaxLength(128);
+            b.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Model).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Outcome).HasMaxLength(30).IsRequired();
+            b.Property(x => x.CostUsd).HasPrecision(14, 6);
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<TenantQuota>(b =>
+        {
+            b.ToTable("tenant_quotas");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.MonthlyCostLimitUsd).HasPrecision(14, 2);
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasIndex(x => x.TenantId).IsUnique();
         });
 
         modelBuilder.Entity<OutboxMessage>(b =>

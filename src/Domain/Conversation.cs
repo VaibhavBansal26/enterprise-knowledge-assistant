@@ -68,6 +68,13 @@ public sealed class ChatMessage : Entity, ITenantOwned
     public string? PromptVersion { get; private set; }
 
     public bool FromCache { get; private set; }
+
+    /// <summary>Fraction of the answer's sentences supported by its sources (0-1); null when not measured.</summary>
+    public double? GroundingScore { get; private set; }
+
+    /// <summary>True when the grounding score fell below the configured threshold: the answer may not stay within its sources.</summary>
+    public bool LowGrounding { get; private set; }
+
     public int? InputTokens { get; private set; }
     public int? OutputTokens { get; private set; }
 
@@ -75,8 +82,17 @@ public sealed class ChatMessage : Entity, ITenantOwned
     public string? Feedback { get; private set; }
 
     public void CompleteAssistant(
-        string? citationsJson, string model, string promptVersion, bool fromCache, int? inputTokens, int? outputTokens)
+        string? citationsJson,
+        string model,
+        string promptVersion,
+        bool fromCache,
+        int? inputTokens,
+        int? outputTokens,
+        double? groundingScore = null,
+        bool lowGrounding = false)
     {
+        GroundingScore = groundingScore;
+        LowGrounding = lowGrounding;
         CitationsJson = citationsJson;
         Model = model;
         PromptVersion = promptVersion;

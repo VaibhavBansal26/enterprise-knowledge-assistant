@@ -8,6 +8,7 @@ using Infrastructure.Llm;
 using Infrastructure.Ingestion;
 using Infrastructure.Storage;
 using Infrastructure.Persistence;
+using Infrastructure.Usage;
 using Infrastructure.Redis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -135,6 +136,12 @@ public static class DependencyInjection
         services.AddSingleton<IRetrievalService, PostgresRetrievalService>();
         services.AddSingleton<ISemanticCache, RedisSemanticCache>();
         services.AddScoped<ChatService>();
+
+        services.AddOptionsWithValidateOnStart<UsageOptions>()
+            .Bind(config.GetSection(UsageOptions.SectionName))
+            .ValidateDataAnnotations();
+        services.AddOptions<PricingOptions>().Bind(config.GetSection(PricingOptions.SectionName));
+        services.AddScoped<UsageService>();
     }
 
     /// <summary>

@@ -14,6 +14,7 @@ import { ErrorMessage } from "../components";
 interface ViewMessage extends Omit<ChatMessage, "id" | "createdAt"> {
   id: string | null;
   streaming?: boolean;
+  piiMasked?: number;
   stopped?: boolean;
   error?: string;
   sourcesSeen?: number;
@@ -138,8 +139,8 @@ export function ChatPage() {
 
     setMessages((all) => [
       ...all,
-      { id: null, role: "user", content: question, citations: [], model: null, promptVersion: null, fromCache: false, feedback: null },
-      { id: null, role: "assistant", content: "", citations: [], model: null, promptVersion: null, fromCache: false, feedback: null, streaming: true },
+      { id: null, role: "user", content: question, citations: [], model: null, promptVersion: null, fromCache: false, groundingScore: null, lowGrounding: false, feedback: null },
+      { id: null, role: "assistant", content: "", citations: [], model: null, promptVersion: null, fromCache: false, groundingScore: null, lowGrounding: false, feedback: null, streaming: true },
     ]);
 
     try {
@@ -165,6 +166,9 @@ export function ChatPage() {
               model: d.model,
               promptVersion: d.promptVersion,
               fromCache: d.fromCache,
+              groundingScore: d.groundingScore,
+              lowGrounding: d.lowGrounding,
+              piiMasked: d.piiRedactions,
               streaming: false,
             })),
           onError: (message) => patchLast((m) => ({ ...m, streaming: false, error: message })),
@@ -265,6 +269,16 @@ export function ChatPage() {
                 {m.error && (
                   <div role="alert" style={{ color: "#b00020", marginTop: 4 }}>
                     {m.error}
+                  </div>
+                )}
+                {m.lowGrounding && !m.streaming && (
+                  <div role="note" style={{ marginTop: 6, padding: "4px 8px", background: "#fff4e5", border: "1px solid #f0c27b", borderRadius: 4, fontSize: "0.85rem" }}>
+                    ⚠ Some statements may not be fully supported by the sources. Check the citations before relying on this answer.
+                  </div>
+                )}
+                {!!m.piiMasked && !m.streaming && (
+                  <div style={{ marginTop: 6, fontSize: "0.8rem", color: "#666" }}>
+                    🔒 {m.piiMasked} personal detail{m.piiMasked > 1 ? "s were" : " was"} masked in your question before it was processed.
                   </div>
                 )}
                 <Sources citations={m.citations} highlighted={highlight?.message === i ? highlight.n : null} />
