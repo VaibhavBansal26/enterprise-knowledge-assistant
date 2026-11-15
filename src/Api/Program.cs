@@ -10,6 +10,7 @@ using FluentValidation;
 using Infrastructure;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Serilog;
@@ -23,6 +24,8 @@ builder.Host.UseSerilog((ctx, cfg) => cfg
     .WriteTo.Console(
         outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{CorrelationId}] {Message:lj}{NewLine}{Exception}",
         formatProvider: CultureInfo.InvariantCulture));
+
+builder.WebHost.UseErrorTracking(builder.Environment.EnvironmentName);
 
 // JSON API: cap request bodies. Upload endpoints (Phase 4) raise this per endpoint.
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 1_048_576);
@@ -40,7 +43,10 @@ builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
 builder.Services.AddExceptionHandler<ConcurrencyExceptionHandler>();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
-builder.Services.AddResponseCompression(); // Brotli + gzip; HTTPS compression stays off by default (BREACH)
+// Brotli + gzip; HTTPS compression stays off by default (BREACH). Event streams are never compressed: the
+// compressor would hold tokens back in its buffer and defeat streaming.
+builder.Services.AddResponseCompression(o =>
+    o.MimeTypes = ResponseCompressionDefaults.MimeTypes.Where(m => m != "text/event-stream").ToArray());
 builder.Services.AddWebCors(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
@@ -48,6 +54,8 @@ builder.Services.AddAppAuth(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddValidatorsFromAssemblyContaining<Application.AssemblyMarker>();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddObservability(builder.Configuration, builder.Environment.EnvironmentName);
+builder.Services.Configure<EvalsOptions>(builder.Configuration.GetSection(EvalsOptions.SectionName));
 builder.Services.AddSignalR().AddRedisBackplane();
 // Replaces the infrastructure's no-op: ingestion progress now reaches browsers through the hub.
 builder.Services.AddSingleton<IIngestionNotifier, SignalRIngestionNotifier>();
@@ -110,6 +118,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapGet("/api/v1/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymous();
 app.MapAuditAndMeEndpoints();
 app.MapMemberEndpoints();
+app.MapChatEndpoints();
+app.MapOpsEndpoints();
 app.MapHub<IngestionHub>(IngestionHub.Path);
 app.MapWorkspaceEndpoints();
 app.MapDocumentEndpoints();

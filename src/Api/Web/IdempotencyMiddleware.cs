@@ -29,7 +29,8 @@ public sealed partial class IdempotencyMiddleware(
         ArgumentNullException.ThrowIfNull(context);
 
         if (!HttpMethods.IsPost(context.Request.Method)
-            || !context.Request.Headers.TryGetValue(HeaderName, out var header))
+            || !context.Request.Headers.TryGetValue(HeaderName, out var header)
+            || context.GetEndpoint()?.Metadata.GetMetadata<NoIdempotencyAttribute>() is not null)
         {
             await next(context);
             return;
@@ -207,3 +208,7 @@ public sealed partial class IdempotencyMiddleware(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to release idempotency key")]
     private static partial void LogReleaseFailed(ILogger logger, Exception exception);
 }
+
+/// <summary>Marks an endpoint whose response must not be buffered for replay (e.g. a live stream).</summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public sealed class NoIdempotencyAttribute : Attribute;

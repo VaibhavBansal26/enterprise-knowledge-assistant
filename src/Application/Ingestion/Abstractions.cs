@@ -22,6 +22,9 @@ public interface IDocumentTextExtractor
 /// <summary>Produces one embedding per text. All vectors have <c>Domain.DocumentChunk.EmbeddingDimensions</c> entries.</summary>
 public interface IEmbeddingClient
 {
+    /// <summary>Stable identifier of the model, stored with every chunk it embeds.</summary>
+    string ModelId { get; }
+
     Task<IReadOnlyList<float[]>> EmbedAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken);
 }
 

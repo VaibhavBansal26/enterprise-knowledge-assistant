@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Api.Auth;
 using Api.Web;
+using Application.Chat;
 using Application.Common;
 using Application.Documents;
 using Application.Ingestion;
@@ -266,8 +267,10 @@ public static partial class DocumentEndpoints
         Guid workspaceId,
         Guid id,
         AppDbContext db,
+        ISemanticCache semanticCache,
         IAuthorizationService authorization,
         ClaimsPrincipal user,
+        ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         var (workspace, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: true, track: false, db, authorization, user, ct);
@@ -293,6 +296,7 @@ public static partial class DocumentEndpoints
             OutboxMessage.DocumentUploaded,
             JsonSerializer.Serialize(new DocumentUploadedPayload(document.Id))));
         await db.SaveChangesAsync(ct);
+        await InvalidateAnswersQuietly(semanticCache, workspace.TenantId, loggerFactory);
 
         return Results.Accepted($"/api/v1/workspaces/{workspaceId}/documents/{document.Id}", ToResponse(document));
     }
@@ -302,12 +306,13 @@ public static partial class DocumentEndpoints
         Guid id,
         AppDbContext db,
         IBlobStorage blobs,
+        ISemanticCache semanticCache,
         IAuthorizationService authorization,
         ClaimsPrincipal user,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
-        var (_, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: true, track: false, db, authorization, user, ct);
+        var (workspace, error) = await WorkspaceAccess.LoadAsync(workspaceId, write: true, track: false, db, authorization, user, ct);
         if (error is not null)
         {
             return error;
@@ -326,8 +331,24 @@ public static partial class DocumentEndpoints
         // Deleted content must stop being searchable and stored: drop its chunks and the original file.
         await db.Chunks.Where(c => c.DocumentId == id).ExecuteDeleteAsync(ct);
         await DeleteBlobQuietly(blobs, storageKey, loggerFactory);
+        await InvalidateAnswersQuietly(semanticCache, workspace!.TenantId, loggerFactory);
 
         return Results.NoContent();
+    }
+
+    /// <summary>Cached answers may quote this document; drop them so a deleted or reprocessed document stops being cited.</summary>
+    private static async Task InvalidateAnswersQuietly(ISemanticCache cache, Guid tenantId, ILoggerFactory loggerFactory)
+    {
+        try
+        {
+            await cache.InvalidateAsync(tenantId, CancellationToken.None);
+        }
+#pragma warning disable CA1031 // Best-effort: entries also expire on their own and hits are re-checked against permissions.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            LogCacheInvalidationFailed(loggerFactory.CreateLogger(typeof(DocumentEndpoints)), ex);
+        }
     }
 
     private static async Task DeleteBlobQuietly(IBlobStorage blobs, string key, ILoggerFactory loggerFactory)
@@ -343,6 +364,9 @@ public static partial class DocumentEndpoints
             LogBlobDeleteFailed(loggerFactory.CreateLogger(typeof(DocumentEndpoints)), ex, key);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not invalidate cached answers")]
+    private static partial void LogCacheInvalidationFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete stored file {Key}")]
     private static partial void LogBlobDeleteFailed(ILogger logger, Exception exception, string key);

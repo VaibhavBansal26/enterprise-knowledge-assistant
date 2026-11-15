@@ -5,7 +5,7 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy) and 4 (ingestion pipeline) done. See [ROADMAP.md](ROADMAP.md).
+Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy), 4 (ingestion), 5 (RAG chat), 6 (quality, safety, observability) and 7 (delivery tooling: images, load and E2E tests, runbook) done; a hosted deployment is still to do. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 ```bash
@@ -61,6 +61,39 @@ Notes:
 - The queue is Postgres rather than Hangfire/MassTransit on purpose: Postgres is already the system of record, so enqueueing is transactional (no dual write to a second system) and there is one fewer moving part. The `IIngestionNotifier`, `IBlobStorage`, `IDistributedLock` and `IEmbeddingClient` seams keep these choices swappable.
 - Blob storage is local disk (`Storage:RootPath`, a volume in Compose). The `IBlobStorage` interface is the place to add S3/MinIO.
 
+## Chat (RAG)
+Ask questions in the **Chat** page; answers stream in with numbered citations you can check against the source passages.
+
+```
+question → embed → [semantic cache?] → hybrid retrieval (permissions in SQL) → budgeted prompt → LLM (streamed)
+        → extract citations → save → SSE events: sources · delta… · done | error
+```
+
+| Concern | Behaviour |
+|---|---|
+| Retrieval | One SQL statement merges **pgvector cosine search** and **Postgres full-text** (Reciprocal Rank Fusion). The permission rules live *inside* the query: tenant, workspace membership (admins: whole tenant), deleted workspaces/documents, document fully ingested, and embedded by the current model. Nothing is filtered afterwards in app code. |
+| Nothing relevant | Says so **without calling the model** (no cost, no invitation to guess). |
+| Prompt | Versioned (`rag-v1`, stored with every answer). Sources are XML-escaped and delimited, and the system prompt tells the model to treat them as data, so text in a document cannot close its block or inject instructions. |
+| Citations | The model writes `[n]`; the server keeps only markers that point at a real source, so invented numbers are dropped. |
+| Memory | Earlier turns are sent newest-first up to `Chat:HistoryTokenBudget`; retrieved passages up to `Chat:ContextTokenBudget` (approximate token counts). |
+| Semantic cache | Redis. A new first question that is near-identical (cosine ≥ `Chat:CacheSimilarityThreshold`) reuses an earlier answer. Invalidated whenever the tenant's documents change; a hit is **re-checked against the asking user's permissions** for every source behind it, so a cached answer is never shown to someone who could not read it. Follow-up questions are never cached. |
+| Streaming | Server-Sent Events over `POST /api/v1/conversations/{id}/messages` (`sources`, `delta`, `done`, `error`). Pressing **Stop** aborts the request and the cancellation reaches the model call; no partial answer is saved. |
+| Privacy | Conversations are private to their owner, even from tenant admins. |
+| Limits | Own per-user rate limit (`Chat:RequestsPerMinute`, default 20) because each message calls a paid model. |
+| Feedback | 👍/👎 per answer (`PUT .../messages/{id}/feedback`). |
+
+### Using Claude (optional)
+By default an **offline extractive model** quotes the best-matching passages (free, no key, not a real LLM). To use Claude, set these as environment variables or user secrets, never in a file:
+
+```bash
+Llm__Provider=anthropic
+Llm__Anthropic__ApiKey=<your key>
+# optional: Llm__Anthropic__Model=claude-opus-5-5  Llm__Anthropic__Effort=low
+```
+Calls go through the official Anthropic SDK. The SDK retries 408/429/5xx (honouring `Retry-After`); a Polly **circuit breaker and first-event timeout** sit on top so an outage fails fast with a clear message. **Server-side refusal fallback** is on by default (`Llm:Anthropic:RefusalFallbackModel`, clear it to disable).
+
+Embeddings are a deterministic **hashing stand-in** by default. For real semantic search point `Embeddings:Provider=openai` at any OpenAI-compatible `/embeddings` endpoint (`Embeddings__OpenAi__ApiKey`, `BaseUrl`, `Model`; must support the `dimensions` parameter, vectors are 384-d). It has its own Polly pipeline (retry with jitter honouring 429, circuit breaker, timeouts). Vectors from different models are not comparable, so chunks record their model and search ignores the others: **reprocess documents after switching**.
+
 ## Authentication and multi-tenancy
 Sign-in is OpenID Connect (Authorization Code + PKCE) against **Keycloak**; the API only validates bearer JWTs
 (issuer, audience `kb-api`, signature, lifetime). The local realm is imported from
@@ -99,6 +132,35 @@ Request pipeline, in order: correlation ID → exception handling → status-cod
 | Rate limiting | Fixed window per client IP, stored in Redis so it holds across instances (`RateLimiting:*`). 429 with `Retry-After`. Health probes exempt. Fails open if Redis is down. |
 | Idempotency | `POST` with `Idempotency-Key` replays the first response (`Idempotent-Replayed: true`); same key with a different body gets 422; a concurrent duplicate gets 409; 5xx responses are not stored. Fails closed (503) if Redis is down. |
 | Limits | Request bodies capped at 1 MB (upload endpoints will raise this in Phase 4). |
+
+## Quality, safety and observability (Phase 6)
+
+**Safety (in the chat pipeline).** PII (emails, phones, card/SSN-like numbers) is masked before text reaches the LLM or the logs; injection phrases in retrieved documents are neutralised; a reply that echoes the system prompt is stopped; and each answer gets a *grounding score*, shown as a warning in the UI when low. The grounding check is a lexical-overlap heuristic, not an entailment model.
+
+**Usage and cost.** Every LLM and embedding call writes a row to a ledger (tokens, estimated cost, model, conversation). Prices live in `Pricing:Models` (unknown models are priced at a deliberately high fallback). Each workspace has a monthly quota (`Usage:DefaultMonthlyCostLimitUsd`, default 25; 0 disables); over-quota requests get 429. Admin endpoints: `GET /api/v1/admin/ops/summary`, `GET|PUT /api/v1/admin/quota`, `GET /api/v1/admin/evals/latest`, shown on the **Ops** page (p95 latency, cost per query, eval scores).
+
+**Telemetry.** OpenTelemetry traces and metrics (`kb.*` instruments) export over OTLP when `Telemetry__OtlpEndpoint` is set. Local dashboard:
+
+```bash
+docker compose --profile dashboard up -d        # Aspire dashboard on :18888
+Telemetry__OtlpEndpoint=http://localhost:4317 dotnet run --project src/Api
+```
+
+Sentry is enabled by setting `Sentry__Dsn`; headers and bodies are scrubbed before sending. It was verified only through the scrubber unit test, not against a live DSN.
+
+**Evals.** `evals/golden.json` is a golden Q&A set run against the offline stand-ins (no API keys). `dotnet test --filter Category=Eval` writes `evals/results/latest.{json,md}` and fails on any hard-gate violation (leak, injection, PII exposure), a metric below its floor, or a drop of more than 0.02 from `evals/baseline.json`. CI runs it on every PR. To accept a deliberate change, copy the new `latest.json` metrics into `baseline.json` in the same PR. The set is small and was tuned alongside the stand-ins, so it guards against regressions rather than measuring real-model quality.
+
+**Upgrade note.** The offline embedding is now `hashing-v2`; reprocess existing documents after upgrading.
+
+## Run it like production (Phase 7)
+
+```bash
+cp .env.example .env            # set the passwords
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# web on http://localhost:8088, sign in as alice / alice-dev-pw (sample realm, dev only)
+```
+
+Images: API, EF migrations bundle (runs before the API starts), and nginx-served web. Load tests (k6) are in `tests/load`, browser tests (Playwright) in `tests/e2e`, and both are described in the [runbook](docs/RUNBOOK.md) together with deploy, rollback, backups and incident steps. Architecture diagram: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); decision log: [docs/adr](docs/adr/README.md).
 
 ## Tests
 ```bash

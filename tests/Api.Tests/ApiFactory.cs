@@ -69,6 +69,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Storage:RootPath", _blobRoot.FullName);
         // High enough that ordinary tests never trip it; the rate-limit tests lower it on their own host.
         builder.UseSetting("RateLimiting:PermitLimit", "100000");
+        builder.UseSetting("Chat:RequestsPerMinute", "10000");
 
         // The shared host does not run the ingestion worker, so uploads stay Pending and tests that are not
         // about ingestion are deterministic. Ingestion tests start their own host with the worker enabled.

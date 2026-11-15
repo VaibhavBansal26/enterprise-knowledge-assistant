@@ -1,0 +1,104 @@
+# Production-shaped stack: built images, a separate migration step, one public entry point (the web container).
+#   cp .env.example .env   # set the secrets
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# Keycloak here still runs in start-dev mode with the sample realm so the stack is self-contained; for a real
+# deployment point Auth__Authority at a managed identity provider and delete the keycloak service.
+name: kb-prod
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: kb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kb -d kb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8081}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./infra/keycloak/kb-realm.json:/opt/keycloak/data/import/kb-realm.json:ro
+
+  # Applies pending EF migrations and exits. The API starts only after it succeeds, so a bad migration blocks the
+  # release instead of serving traffic on a half-migrated schema.
+  migrate:
+    build: { context: ., dockerfile: src/Api/Dockerfile, target: migrator }
+    image: kb-migrator:${TAG:-local}
+    command: ["--connection", "Host=postgres;Port=5432;Database=kb;Username=kb;Password=${POSTGRES_PASSWORD}"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: { context: ., dockerfile: src/Api/Dockerfile, target: runtime }
+    image: kb-api:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"   # trust X-Forwarded-* from the web container / platform proxy
+      Database__ConnectionString: Host=postgres;Port=5432;Database=kb;Username=kb;Password=${POSTGRES_PASSWORD}
+      Database__MigrateOnStartup: "false"
+      Redis__ConnectionString: redis:6379
+      Auth__Authority: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8081}/realms/kb
+      Auth__MetadataAddress: http://keycloak:8080/realms/kb/.well-known/openid-configuration
+      Auth__RequireHttpsMetadata: "false"
+      Storage__RootPath: /data/blobs
+      Llm__Provider: ${LLM_PROVIDER:-extractive}
+      Llm__Anthropic__ApiKey: ${ANTHROPIC_API_KEY:-}
+      Sentry__Dsn: ${SENTRY_DSN:-}
+      Telemetry__OtlpEndpoint: ${OTLP_ENDPOINT:-}
+    volumes:
+      - blobdata:/data/blobs
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      keycloak: { condition: service_started }
+
+  web:
+    build:
+      context: web
+      args:
+        VITE_OIDC_AUTHORITY: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8081}/realms/kb
+    image: kb-web:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:8080
+    ports:
+      - "${WEB_PORT:-8088}:8080"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
+  blobdata:
