@@ -1,0 +1,7 @@
+# Overlay for load tests only: lifts the per-user limits (100 requests/min, 20 chat questions/min) that would
+# otherwise turn a single-user test into a wall of 429s. Never use in production.
+services:
+  api:
+    environment:
+      RateLimiting__PermitLimit: "100000"
+      Chat__RequestsPerMinute: "10000"

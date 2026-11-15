@@ -5,7 +5,7 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy), 4 (ingestion), 5 (RAG chat) and 6 (quality, safety, observability) done. See [ROADMAP.md](ROADMAP.md).
+Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy), 4 (ingestion), 5 (RAG chat), 6 (quality, safety, observability) and 7 (delivery tooling: images, load and E2E tests, runbook) done; a hosted deployment is still to do. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 ```bash
@@ -151,6 +151,16 @@ Sentry is enabled by setting `Sentry__Dsn`; headers and bodies are scrubbed befo
 **Evals.** `evals/golden.json` is a golden Q&A set run against the offline stand-ins (no API keys). `dotnet test --filter Category=Eval` writes `evals/results/latest.{json,md}` and fails on any hard-gate violation (leak, injection, PII exposure), a metric below its floor, or a drop of more than 0.02 from `evals/baseline.json`. CI runs it on every PR. To accept a deliberate change, copy the new `latest.json` metrics into `baseline.json` in the same PR. The set is small and was tuned alongside the stand-ins, so it guards against regressions rather than measuring real-model quality.
 
 **Upgrade note.** The offline embedding is now `hashing-v2`; reprocess existing documents after upgrading.
+
+## Run it like production (Phase 7)
+
+```bash
+cp .env.example .env            # set the passwords
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# web on http://localhost:8088, sign in as alice / alice-dev-pw (sample realm, dev only)
+```
+
+Images: API, EF migrations bundle (runs before the API starts), and nginx-served web. Load tests (k6) are in `tests/load`, browser tests (Playwright) in `tests/e2e`, and both are described in the [runbook](docs/RUNBOOK.md) together with deploy, rollback, backups and incident steps. Architecture diagram: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); decision log: [docs/adr](docs/adr/README.md).
 
 ## Tests
 ```bash
