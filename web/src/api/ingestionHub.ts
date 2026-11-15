@@ -1,3 +1,4 @@
+import { apiBase } from "../config";
 import { useEffect, useRef, useState } from "react";
 import { HubConnectionBuilder, HubConnectionState, LogLevel } from "@microsoft/signalr";
 import { getAccessToken } from "./client";
@@ -23,7 +24,11 @@ export function useIngestionUpdates(workspaceId: string, onUpdate: (e: DocumentS
 
   useEffect(() => {
     const connection = new HubConnectionBuilder()
-      .withUrl("/hubs/ingestion", { accessTokenFactory: async () => (await getAccessToken()) ?? "" })
+      // withCredentials is off: the token travels in the query string, and cookies would require a credentialed CORS policy.
+      .withUrl(`${apiBase}/hubs/ingestion`, {
+        accessTokenFactory: async () => (await getAccessToken()) ?? "",
+        withCredentials: false,
+      })
       .withAutomaticReconnect()
       .configureLogging(LogLevel.Warning)
       .build();

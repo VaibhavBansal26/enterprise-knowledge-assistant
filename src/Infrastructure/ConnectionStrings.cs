@@ -13,7 +13,8 @@ public static class ConnectionStrings
     public static string Postgres(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("postgres" or "postgresql"))
+        if (!value.Contains("://", StringComparison.Ordinal) || !Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("postgres" or "postgresql"))
         {
             return value;
         }
@@ -44,15 +45,38 @@ public static class ConnectionStrings
             }
         }
 
-        // Managed Postgres requires TLS from outside its private network; "Prefer" uses it when offered.
-        parts.Append("SSL Mode=Prefer");
+        // Honour ?sslmode= (Neon and most managed providers send sslmode=require); otherwise use TLS when offered.
+        parts.Append(CultureInfo.InvariantCulture, $"SSL Mode={SslMode(uri.Query)}");
         return parts.ToString();
+    }
+
+    private static string SslMode(string query)
+    {
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = pair.Split('=', 2);
+            if (kv.Length == 2 && kv[0].Equals("sslmode", StringComparison.OrdinalIgnoreCase))
+            {
+                return kv[1].ToLowerInvariant() switch
+                {
+                    "disable" => "Disable",
+                    "require" => "Require",
+                    "verify-ca" => "VerifyCA",
+                    "verify-full" => "VerifyFull",
+                    _ => "Prefer",
+                };
+            }
+        }
+
+        return "Prefer";
     }
 
     public static string Redis(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("redis" or "rediss"))
+        // "redis:6379" (host:port) also parses as a URI with scheme "redis", so require the "://" of a real URI.
+        if (!value.Contains("://", StringComparison.Ordinal) || !Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("redis" or "rediss"))
         {
             return value;
         }

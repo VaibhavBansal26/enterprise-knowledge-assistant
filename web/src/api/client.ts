@@ -1,3 +1,4 @@
+import { apiBase } from "../config";
 export interface Workspace {
   id: string;
   name: string;
@@ -187,7 +188,7 @@ export const getAccessToken = () => auth?.getToken();
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await auth?.getToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiBase + path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -302,7 +303,7 @@ export async function uploadDocument(
 
   return new Promise<DocumentItem>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${ws}/${workspaceId}/documents`);
+    xhr.open("POST", `${apiBase}${ws}/${workspaceId}/documents`);
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("Idempotency-Key", crypto.randomUUID());
 
@@ -348,7 +349,7 @@ export async function streamAnswer(
   signal: AbortSignal,
 ): Promise<void> {
   const token = await auth?.getToken();
-  const res = await fetch(`/api/v1/conversations/${conversationId}/messages`, {
+  const res = await fetch(`${apiBase}/api/v1/conversations/${conversationId}/messages`, {
     method: "POST",
     signal,
     headers: {

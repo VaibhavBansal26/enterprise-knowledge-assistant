@@ -28,8 +28,10 @@ test("admin signs in, uploads a document, asks a question and gets a cited answe
     buffer: Buffer.from("# Remote work\nEmployees may work remotely up to three days per week with manager approval.\n"),
   });
   await page.getByRole("button", { name: /upload/i }).click();
-  // Ingestion runs in the background; the row flips to Ready when chunks are embedded.
-  await expect(page.getByText(/ready/i).first()).toBeVisible({ timeout: 45_000 });
+  // Ingestion runs in the background; this document's row flips to "Ready · N chunks" once it is searchable.
+  // (Scoped to the row: the page header also says "API ready", which must not satisfy this wait.)
+  const row = page.getByRole("listitem").filter({ hasText: "policy.md" });
+  await expect(row.getByText(/Ready · \d+ chunks/)).toBeVisible({ timeout: 60_000 });
 
   await page.getByRole("link", { name: "Chat" }).click();
   await page.getByPlaceholder("Ask a question about your documents…").fill("How many days can employees work remotely?");

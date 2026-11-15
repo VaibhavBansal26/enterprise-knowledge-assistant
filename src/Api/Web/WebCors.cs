@@ -29,7 +29,10 @@ public static class WebCorsExtensions
             cors.AddPolicy(WebCorsSettings.PolicyName, policy => policy
                 .WithOrigins(settings.Value.AllowedOrigins)
                 .WithMethods("GET", "POST", "PUT", "DELETE")
-                .WithHeaders("Content-Type", "Authorization", "Idempotency-Key", CorrelationIdMiddleware.HeaderName)
+                // The SignalR JavaScript client adds the last two to its negotiate request.
+                .WithHeaders(
+                    "Content-Type", "Authorization", "Idempotency-Key", CorrelationIdMiddleware.HeaderName,
+                    "X-SignalR-User-Agent", "X-Requested-With")
                 .WithExposedHeaders(
                     CorrelationIdMiddleware.HeaderName,
                     IdempotencyMiddleware.ReplayHeader,

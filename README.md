@@ -5,7 +5,7 @@ A production-grade RAG application: employees ask questions over internal docume
 **Stack:** .NET 9 (Minimal APIs, EF Core) · React + TypeScript (Vite) · PostgreSQL + pgvector · Redis · LLM provider behind an interface
 
 ## Status
-Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy), 4 (ingestion), 5 (RAG chat), 6 (quality, safety, observability) and 7 (delivery tooling: images, load and E2E tests, runbook) done; Render deployment config is ready (not yet deployed). See [ROADMAP.md](ROADMAP.md).
+Phases 0 (foundations), 1 (CRUD), 2 (middleware), 3 (auth and multi-tenancy), 4 (ingestion), 5 (RAG chat), 6 (quality, safety, observability) and 7 (delivery tooling: images, load and E2E tests, runbook) done; free Render + Neon + Auth0 deployment config is ready (not yet deployed). See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 ```bash
@@ -160,7 +160,7 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d --build
 # web on http://localhost:8088, sign in as alice / alice-dev-pw (sample realm, dev only)
 ```
 
-Images: API, EF migrations bundle (runs before the API starts), and nginx-served web. Load tests (k6) are in `tests/load`, browser tests (Playwright) in `tests/e2e`, and both are described in the [runbook](docs/RUNBOOK.md) together with deploy, rollback, backups and incident steps. Deploying to Render: [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md). Architecture diagram: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); decision log: [docs/adr](docs/adr/README.md).
+Images: API, EF migrations bundle (runs before the API starts), and nginx-served web. Load tests (k6) are in `tests/load`, browser tests (Playwright) in `tests/e2e`, and both are described in the [runbook](docs/RUNBOOK.md) together with deploy, rollback, backups and incident steps. Free deployment: [docs/DEPLOY-FREE.md](docs/DEPLOY-FREE.md) (paid, Keycloak included: [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md)). Architecture diagram: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); decision log: [docs/adr](docs/adr/README.md).
 
 ## Tests
 ```bash

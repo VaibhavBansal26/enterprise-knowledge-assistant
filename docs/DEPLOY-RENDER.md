@@ -1,6 +1,8 @@
-# Deploying to Render
+# Deploying to Render with Keycloak (paid, self-contained)
 
-`render.yaml` describes the whole stack. Run it locally first with `deploy/docker-compose.render-like.yml`, which mirrors the same topology (this passed the Playwright suite, see below).
+> The **free** setup (Render free tier + Neon + Auth0) is in [DEPLOY-FREE.md](DEPLOY-FREE.md) and `render.yaml`. This page is the paid variant that also hosts Keycloak, defined in `deploy/render.keycloak.yaml` (choose that path when creating the Blueprint).
+
+`deploy/render.keycloak.yaml` describes the whole stack. Run it locally first with `deploy/docker-compose.render-like.yml`, which mirrors the same topology (this passed the Playwright suite, see below).
 
 ```
 Internet ──> kb-web (nginx, public)  ──/api, /hubs, /health──> kb-api (public, health-checked)
@@ -22,11 +24,11 @@ Approximate list prices at the time of writing, **check the Render dashboard bef
 | kb-web | starter | $7 / month |
 | **Total** | | **about $45 / month** |
 
-Keycloak is the expensive part. If you have an OIDC provider already (Auth0, Entra ID, Okta, a managed Keycloak), delete `kb-keycloak` from `render.yaml`, set `Auth__Authority` (and remove `Auth__MetadataAddress`) to that issuer, and set `OIDC_AUTHORITY` plus `OIDC_CLIENT_ID` on `kb-web`; the total drops to about $20.
+Keycloak is the expensive part. If you have an OIDC provider already (Auth0, Entra ID, Okta, a managed Keycloak), delete `kb-keycloak` from the blueprint, set `Auth__Authority` (and remove `Auth__MetadataAddress`) to that issuer, and set `OIDC_AUTHORITY` plus `OIDC_CLIENT_ID` on `kb-web`; the total drops to about $20.
 
 ## Steps
 1. **Merge the PR chain** (#6, #7, #8, #9) into `main`, or point the Blueprint at branch `claude/changes`.
-2. Render Dashboard → **New → Blueprint** → select this repository. Render validates `render.yaml` and shows the services and prices. Review them, then continue.
+2. Render Dashboard → **New → Blueprint** → select this repository. Render validates the blueprint file and shows the services and prices. Review them, then continue.
 3. When asked for values:
    - `Auth__Authority`: `https://kb-web.onrender.com/auth/realms/kb`. This is a guess; fix it in step 5.
    - `Llm__Anthropic__ApiKey`: leave empty to keep the offline stand-in, or paste a key (and set `Llm__Provider=anthropic` on `kb-api`).
@@ -48,7 +50,7 @@ Keycloak is the expensive part. If you have an OIDC provider already (Auth0, Ent
 Verified with `deploy/docker-compose.render-like.yml` (same images, same variables, `postgres://` and `redis://` URIs, Keycloak only reachable through `/auth`, API as root on a root-owned volume): migrations on start, `/health/ready`, sign-in through `/auth` with the issuer matching `Auth__Authority`, and all four Playwright tests.
 
 **Not verified, because it needs a real Render account:**
-- Render accepting `render.yaml` as written (field names, `keyvalue` type, `fromDatabase`/`fromService` references). Dashboard validation will say; fix what it flags.
+- Render accepting `deploy/render.keycloak.yaml` as written (field names, `keyvalue` type, `fromDatabase`/`fromService` references). Dashboard validation will say; fix what it flags.
 - Render's private network names and ports (`kb-keycloak:10000`, `kb-api:8080`), and that nginx's resolver detection works there.
 - The persistent disk being writable by the API (the image runs as root for this reason) and surviving redeploys.
 - Keycloak running comfortably in 2 GB, and its first-start time.

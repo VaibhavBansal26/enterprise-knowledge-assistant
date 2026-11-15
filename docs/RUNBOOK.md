@@ -36,7 +36,7 @@ Invalid configuration fails at startup with a message naming the field (for exam
 - `GET /health/ready` — Postgres and Redis reachable (use for readiness and as the deploy gate).
 
 ## Deploy
-On Render, follow [DEPLOY-RENDER.md](DEPLOY-RENDER.md); the generic procedure is below.
+On Render, follow [DEPLOY-FREE.md](DEPLOY-FREE.md) (free) or [DEPLOY-RENDER.md](DEPLOY-RENDER.md) (paid, with Keycloak); the generic procedure is below.
 
 1. Build and tag images with the git SHA: `docker build -f src/Api/Dockerfile --target runtime -t kb-api:$SHA .` (likewise `--target migrator`, and `docker build -t kb-web:$SHA web`). Push them to your registry.
 2. Take a database backup (see below).

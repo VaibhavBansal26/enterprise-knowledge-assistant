@@ -8,6 +8,11 @@ const authority =
   import.meta.env.VITE_OIDC_AUTHORITY ||
   "http://localhost:8081/realms/kb";
 const clientId = runtime.clientId || import.meta.env.VITE_OIDC_CLIENT_ID || "kb-web";
+// Auth0 and Entra ID need the API's identifier (audience) on the sign-in request, and only issue refresh tokens for offline_access.
+const audience = runtime.audience || import.meta.env.VITE_OIDC_AUDIENCE || undefined;
+const scope = runtime.scope || import.meta.env.VITE_OIDC_SCOPE || "openid profile email";
+// Identity providers that only allow namespaced custom claims (Auth0) name the role claim e.g. "https://kb.example/roles".
+const rolesClaim = runtime.rolesClaim || import.meta.env.VITE_OIDC_ROLES_CLAIM || "roles";
 
 /**
  * Authorization Code flow with PKCE against the identity provider (Keycloak).
@@ -23,18 +28,21 @@ export const userManager = new UserManager({
   redirect_uri: `${window.location.origin}/`,
   post_logout_redirect_uri: `${window.location.origin}/`,
   response_type: "code",
-  scope: "openid profile email",
+  scope,
+  extraQueryParams: audience ? { audience } : undefined,
   automaticSilentRenew: true,
   userStore: new WebStorageStateStore({ store: new InMemoryWebStorage() }),
   stateStore: new WebStorageStateStore({ store: window.sessionStorage }),
 });
 
-/** Reads the `roles` claim from an access token. Display only: the API enforces authorization. */
+/** Reads the roles claim (`roles`, or the configured namespaced name) from an access token. Display only: the API enforces authorization. */
 export function rolesFromAccessToken(accessToken: string): string[] {
   try {
     const payload = accessToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const claims = JSON.parse(atob(payload)) as { roles?: unknown };
-    return Array.isArray(claims.roles) ? claims.roles.filter((r): r is string => typeof r === "string") : [];
+    const claims = JSON.parse(atob(payload)) as Record<string, unknown>;
+    const roles = claims[rolesClaim];
+    if (typeof roles === "string") return [roles];
+    return Array.isArray(roles) ? roles.filter((r): r is string => typeof r === "string") : [];
   } catch {
     return [];
   }

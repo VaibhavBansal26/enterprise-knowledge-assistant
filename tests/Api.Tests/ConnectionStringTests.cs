@@ -30,8 +30,19 @@ public class ConnectionStringTests
     }
 
     [Theory]
+    [InlineData("postgresql://u:p@ep-1.neon.tech/neondb?sslmode=require&channel_binding=require", Npgsql.SslMode.Require)]
+    [InlineData("postgresql://u:p@db/kb?sslmode=disable", Npgsql.SslMode.Disable)]
+    [InlineData("postgresql://u:p@db/kb", Npgsql.SslMode.Prefer)]
+    public void Postgres_uri_honours_sslmode(string uri, Npgsql.SslMode expected)
+    {
+        Assert.Equal(expected, new NpgsqlConnectionStringBuilder(ConnectionStrings.Postgres(uri)).SslMode);
+    }
+
+    [Theory]
     [InlineData("Host=localhost;Port=5433;Database=kb;Username=kb;Password=x")]
     [InlineData("localhost:6380")]
+    [InlineData("redis:6379")] // host:port where the host happens to be called "redis"
+    [InlineData("postgres:5432")]
     public void Existing_formats_pass_through(string value)
     {
         Assert.Equal(value, ConnectionStrings.Postgres(value));
