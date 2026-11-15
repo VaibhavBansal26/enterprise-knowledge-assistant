@@ -32,6 +32,7 @@ public sealed partial class GlobalExceptionHandler(IProblemDetailsService proble
         }
 
         LogUnhandled(logger, exception, httpContext.Request.Method, httpContext.Request.Path);
+        Sentry.SentrySdk.CaptureException(exception); // no-op unless Sentry:Dsn is configured
 
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
         return await problemDetails.TryWriteAsync(new ProblemDetailsContext

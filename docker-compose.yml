@@ -44,6 +44,18 @@ services:
     volumes:
       - ./infra/keycloak/kb-realm.json:/opt/keycloak/data/import/kb-realm.json:ro
 
+  # Optional local telemetry UI (traces, metrics, logs). Start with: docker compose --profile observability up -d dashboard
+  # Dev only: authentication is disabled. Point the API at it with Telemetry__OtlpEndpoint=http://localhost:4317
+  dashboard:
+    profiles: ["observability"]
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    environment:
+      DASHBOARD__FRONTEND__AUTHMODE: Unsecured
+      DASHBOARD__OTLP__AUTHMODE: Unsecured
+    ports:
+      - "18888:18888"   # UI
+      - "4317:18889"    # OTLP/gRPC from the API
+
   api:
     profiles: ["full"]
     build:
@@ -57,6 +69,7 @@ services:
       Auth__MetadataAddress: http://keycloak:8080/realms/kb/.well-known/openid-configuration
       Auth__RequireHttpsMetadata: "false"
       Storage__RootPath: /data/blobs
+      # Telemetry__OtlpEndpoint: http://dashboard:18889   # uncomment with --profile observability
     volumes:
       - blobdata:/data/blobs
     ports:

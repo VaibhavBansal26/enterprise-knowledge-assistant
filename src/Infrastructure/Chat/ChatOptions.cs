@@ -40,6 +40,16 @@ public sealed class ChatOptions
     [Range(1, 10_000)]
     public int CacheMaxEntriesPerScope { get; init; } = 100;
 
+    /// <summary>Answers scoring below this grounding score are flagged and never cached (0 disables the flag).</summary>
+    [Range(0.0, 1.0)]
+    public double MinGroundingScore { get; init; } = 0.5;
+
+    /// <summary>Mask personal data (emails, phone numbers, cards, SSNs, keys) in questions before they are stored, embedded or sent to a model.</summary>
+    public bool RedactPii { get; init; } = true;
+
+    /// <summary>Remove instruction-like sentences from retrieved passages before they reach the model.</summary>
+    public bool NeutralizeInjection { get; init; } = true;
+
     /// <summary>Each message calls a paid model, so it has its own, tighter per-user limit (per minute).</summary>
     [Range(1, 10_000)]
     public int RequestsPerMinute { get; init; } = 20;

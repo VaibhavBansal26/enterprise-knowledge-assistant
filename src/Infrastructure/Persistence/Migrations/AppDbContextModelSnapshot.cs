@@ -117,9 +117,17 @@ namespace Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("from_cache");
 
+                    b.Property<double?>("GroundingScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("grounding_score");
+
                     b.Property<int?>("InputTokens")
                         .HasColumnType("integer")
                         .HasColumnName("input_tokens");
+
+                    b.Property<bool>("LowGrounding")
+                        .HasColumnType("boolean")
+                        .HasColumnName("low_grounding");
 
                     b.Property<string>("Model")
                         .HasMaxLength(100)
@@ -431,6 +439,136 @@ namespace Infrastructure.Persistence.Migrations
                         .HasFilter("processed_at IS NULL AND dead_at IS NULL");
 
                     b.ToTable("outbox_messages", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.TenantQuota", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal?>("MonthlyCostLimitUsd")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("monthly_cost_limit_usd");
+
+                    b.Property<long?>("MonthlyTokenLimit")
+                        .HasColumnType("bigint")
+                        .HasColumnName("monthly_token_limit");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tenant_quotas");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tenant_quotas_tenant_id");
+
+                    b.ToTable("tenant_quotas", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.UsageLedgerEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<decimal>("CostUsd")
+                        .HasPrecision(14, 6)
+                        .HasColumnType("numeric(14,6)")
+                        .HasColumnName("cost_usd");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<double?>("GroundingScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("grounding_score");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint")
+                        .HasColumnName("input_tokens");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<int?>("LatencyMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("latency_ms");
+
+                    b.Property<Guid?>("MessageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
+
+                    b.Property<int>("Neutralized")
+                        .HasColumnType("integer")
+                        .HasColumnName("neutralized");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("outcome");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint")
+                        .HasColumnName("output_tokens");
+
+                    b.Property<int>("PiiRedactions")
+                        .HasColumnType("integer")
+                        .HasColumnName("pii_redactions");
+
+                    b.Property<int?>("RetrievedPassages")
+                        .HasColumnType("integer")
+                        .HasColumnName("retrieved_passages");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<int?>("TimeToFirstTokenMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("time_to_first_token_ms");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_usage_ledger");
+
+                    b.HasIndex("TenantId", "CreatedAt")
+                        .HasDatabaseName("ix_usage_ledger_tenant_id_created_at");
+
+                    b.ToTable("usage_ledger", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Workspace", b =>

@@ -13,3 +13,4 @@ appsettings.*.local.json
 .vscode/
 *.tsbuildinfo
 data/
+evals/results/

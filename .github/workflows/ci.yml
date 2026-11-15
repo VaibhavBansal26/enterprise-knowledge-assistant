@@ -15,7 +15,23 @@ jobs:
           dotnet-version: 9.0.x
       - run: dotnet restore
       - run: dotnet build --no-restore -c Release
-      - run: dotnet test --no-build -c Release
+      - name: Tests
+        run: dotnet test --no-build -c Release --filter "Category!=Eval"
+      # Quality and safety gate: fails the build on a leak, an injection, a PII exposure, a metric below its floor,
+      # or a regression against evals/baseline.json. Runs the offline stand-ins, so it needs no API keys.
+      - name: Eval regression gate
+        run: dotnet test --no-build -c Release --filter "Category=Eval"
+      - name: Publish eval report
+        if: always()
+        run: |
+          if [ -f evals/results/latest.md ]; then cat evals/results/latest.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: evals/results/
+          if-no-files-found: ignore
 
   web:
     runs-on: ubuntu-latest

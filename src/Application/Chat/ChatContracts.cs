@@ -19,6 +19,8 @@ public sealed record MessageResponse(
     string? Model,
     string? PromptVersion,
     bool FromCache,
+    double? GroundingScore,
+    bool LowGrounding,
     string? Feedback,
     DateTimeOffset CreatedAt);
 

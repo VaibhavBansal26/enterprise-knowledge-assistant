@@ -6,9 +6,11 @@ using Api.Web;
 using Application.Abstractions;
 using Application.Chat;
 using Application.Common;
+using Application.Telemetry;
 using Domain;
 using Infrastructure.Chat;
 using Infrastructure.Persistence;
+using Infrastructure.Usage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -137,6 +139,7 @@ public static partial class ChatEndpoints
         IAuthorizationService authorization,
         ClaimsPrincipal user,
         ChatService chat,
+        UsageService usage,
         IRateLimiter limiter,
         IOptions<ChatOptions> options,
         ILoggerFactory loggerFactory,
@@ -164,7 +167,22 @@ public static partial class ChatEndpoints
             return limited;
         }
 
+        // Spending cap: refuse before any model call is made, and say when it resets.
+        var quota = await usage.GetQuotaStatusAsync(ct);
+        if (quota.Exceeded)
+        {
+            AppTelemetry.QuotaRejected.Add(1);
+            await chat.RecordFailureAsync(conversation, ChatOutcome.QuotaExceeded, 0);
+            var retryAfter = (int)Math.Max(1, (quota.ResetsAt - DateTimeOffset.UtcNow).TotalSeconds);
+            http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
+            return Results.Problem(
+                statusCode: StatusCodes.Status429TooManyRequests,
+                title: "Monthly usage limit reached",
+                detail: $"Your organisation has used its monthly allowance. It resets on {quota.ResetsAt:yyyy-MM-dd}; an administrator can raise the limit.");
+        }
+
         var logger = loggerFactory.CreateLogger(typeof(ChatEndpoints));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         http.Response.ContentType = "text/event-stream";
         http.Response.Headers.CacheControl = "no-cache, no-transform";
         http.Response.Headers["X-Accel-Buffering"] = "no"; // tell reverse proxies not to buffer the stream
@@ -192,10 +210,12 @@ public static partial class ChatEndpoints
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // The user pressed Stop or left; cancellation already reached the model call. Nothing to send.
+            await chat.RecordFailureAsync(conversation, ChatOutcome.Cancelled, (int)clock.ElapsedMilliseconds);
         }
         catch (LlmUnavailableException ex)
         {
             LogLlmUnavailable(logger, ex);
+            await chat.RecordFailureAsync(conversation, ChatOutcome.Error, (int)clock.ElapsedMilliseconds);
             await WriteEvent(http.Response, "error", new { code = "llm_unavailable", message = ex.Message }, CancellationToken.None);
         }
 #pragma warning disable CA1031 // After streaming has started the only way to report a failure is an error event.
@@ -203,6 +223,7 @@ public static partial class ChatEndpoints
 #pragma warning restore CA1031
         {
             LogChatFailed(logger, ex, id);
+            await chat.RecordFailureAsync(conversation, ChatOutcome.Error, (int)clock.ElapsedMilliseconds);
             await WriteEvent(http.Response, "error", new { code = "internal", message = "Something went wrong while answering. Please try again." }, CancellationToken.None);
         }
 
@@ -251,6 +272,8 @@ public static partial class ChatEndpoints
         m.Model,
         m.PromptVersion,
         m.FromCache,
+        m.GroundingScore,
+        m.LowGrounding,
         m.Feedback,
         m.CreatedAt);
 

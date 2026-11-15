@@ -16,15 +16,14 @@ public sealed partial class ExtractiveLlmClient : ILlmClient
 {
     public const string Model = "extractive-fallback";
 
+    private const double MinCoverage = 0.3;
+
     private const string NoAnswer = "The provided sources do not contain enough information to answer that.";
 
     public string ModelId => Model;
 
     [GeneratedRegex("<source id=\"(\\d+)\" title=\"([^\"]*)\">\\s*(.*?)\\s*</source>", RegexOptions.Singleline)]
     private static partial Regex SourceBlock();
-
-    [GeneratedRegex("[a-z0-9]+")]
-    private static partial Regex Word();
 
     public async IAsyncEnumerable<LlmEvent> StreamAsync(
         LlmRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -51,7 +50,11 @@ public sealed partial class ExtractiveLlmClient : ILlmClient
             }
         }
 
-        var best = candidates.OrderByDescending(c => c.Score).ThenBy(c => c.Number).Take(3).ToList();
+        // Abstain unless a source sentence covers a meaningful share (30%) of what was asked: sharing a word or two ("company",
+        // "policy") is not evidence that the question is answered. A real model makes the same call.
+        var enough = questionWords.Count > 0 && candidates.Count > 0
+            && (double)candidates.Max(c => c.Score) / questionWords.Count >= MinCoverage;
+        var best = enough ? candidates.OrderByDescending(c => c.Score).ThenBy(c => c.Number).Take(3).ToList() : [];
         var answer = best.Count == 0
             ? NoAnswer
             : "Based on the documents: " + string.Join(' ', best.Select(c => $"{c.Sentence.TrimEnd()} [{c.Number}]"));
@@ -68,8 +71,7 @@ public sealed partial class ExtractiveLlmClient : ILlmClient
         yield return new LlmCompleted(Model, request.Messages.Sum(m => TokenBudget.Estimate(m.Content)), tokens, "end_turn");
     }
 
-    private static HashSet<string> Words(string text) =>
-        Word().Matches(text.ToLowerInvariant()).Select(m => m.Value).Where(w => w.Length > 2).ToHashSet(StringComparer.Ordinal);
+    private static HashSet<string> Words(string text) => Lexicon.Tokens(text).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Splits into small word groups so the response streams like a model's would.</summary>
     private static IEnumerable<string> Chunks(string text)
