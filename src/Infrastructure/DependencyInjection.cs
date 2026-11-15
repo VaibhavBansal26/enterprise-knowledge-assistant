@@ -40,8 +40,8 @@ public static class DependencyInjection
         // overrides (tests, environment variables) always take effect.
         services.AddSingleton(sp =>
         {
-            var builder = new NpgsqlDataSourceBuilder(
-                sp.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString);
+            var builder = new NpgsqlDataSourceBuilder(ConnectionStrings.Postgres(
+                sp.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString));
             // Required to map Dictionary<string,string> (document metadata) to jsonb.
             builder.EnableDynamicJson();
             builder.UseVector(); // pgvector type mapping
@@ -49,8 +49,8 @@ public static class DependencyInjection
         });
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {
-            var redis = ConfigurationOptions.Parse(
-                sp.GetRequiredService<IOptions<RedisOptions>>().Value.ConnectionString);
+            var redis = ConfigurationOptions.Parse(ConnectionStrings.Redis(
+                sp.GetRequiredService<IOptions<RedisOptions>>().Value.ConnectionString));
             redis.AbortOnConnectFail = false; // start even if Redis is briefly down; /health/ready reports it
             redis.ConnectTimeout = 2000;
             redis.SyncTimeout = 1000;
@@ -187,7 +187,7 @@ public static class DependencyInjection
         signalR.Services.AddOptions<Microsoft.AspNetCore.SignalR.StackExchangeRedis.RedisOptions>()
             .Configure<IOptions<RedisOptions>>((backplane, redis) =>
             {
-                backplane.Configuration = ConfigurationOptions.Parse(redis.Value.ConnectionString);
+                backplane.Configuration = ConfigurationOptions.Parse(ConnectionStrings.Redis(redis.Value.ConnectionString));
                 backplane.Configuration.AbortOnConnectFail = false;
                 backplane.Configuration.ChannelPrefix = RedisChannel.Literal("kb");
             });

@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return null;
     const roles = rolesFromAccessToken(user.access_token);
     return {
-      username: user.profile.preferred_username ?? user.profile.sub,
+      username: user.profile.preferred_username ?? user.profile.name ?? user.profile.email ?? user.profile.sub,
       roles,
       isAdmin: roles.includes("admin"),
       canWrite: roles.includes("admin") || roles.includes("editor"),

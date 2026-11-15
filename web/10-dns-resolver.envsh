@@ -1,0 +1,7 @@
+# Sourced by the nginx entrypoint before templates are rendered. nginx needs an explicit resolver to re-resolve the
+# upstream names at runtime; take the platform's own (Docker, Render, Kubernetes) from resolv.conf unless one is set.
+if [ -z "${DNS_RESOLVER:-}" ]; then
+  DNS_RESOLVER="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)"
+  case "$DNS_RESOLVER" in *:*) DNS_RESOLVER="[$DNS_RESOLVER]" ;; esac
+  export DNS_RESOLVER
+fi

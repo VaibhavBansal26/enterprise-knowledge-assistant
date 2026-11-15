@@ -1,3 +1,9 @@
+# Behind a TLS-terminating platform proxy the scheme arrives in X-Forwarded-Proto; when hit directly, use our own.
+map $http_x_forwarded_proto $fwd_proto {
+  default $http_x_forwarded_proto;
+  ""      $scheme;
+}
+
 server {
   listen 8080;
   root /usr/share/nginx/html;
@@ -7,6 +13,7 @@ server {
   # after the API container is replaced every request would 502 until nginx restarted.
   resolver ${DNS_RESOLVER} valid=5s ipv6=off;
   set $api ${API_UPSTREAM};
+  set $kc ${KEYCLOAK_UPSTREAM};
 
   add_header X-Content-Type-Options nosniff always;
   add_header X-Frame-Options DENY always;
@@ -20,6 +27,23 @@ server {
     # Chat answers stream over SSE: do not buffer.
     proxy_buffering off;
     proxy_read_timeout 300s;
+  }
+
+  location = /config.js {
+    alias /tmp/config.js;   # generated at container start from environment variables
+    add_header Cache-Control "no-store";
+  }
+
+  # Optional: Keycloak (started with KC_HTTP_RELATIVE_PATH=/auth) served from this origin, so the browser, the API
+  # and the identity provider share one public URL and no CORS or issuer mismatch can arise.
+  location /auth/ {
+    proxy_pass $kc;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $http_host;   # includes the port when there is one
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $fwd_proto;
+    proxy_buffer_size 16k;
+    proxy_buffers 8 16k;
   }
 
   location /health/ { proxy_pass $api; }

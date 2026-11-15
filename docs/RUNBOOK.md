@@ -36,6 +36,8 @@ Invalid configuration fails at startup with a message naming the field (for exam
 - `GET /health/ready` — Postgres and Redis reachable (use for readiness and as the deploy gate).
 
 ## Deploy
+On Render, follow [DEPLOY-FREE.md](DEPLOY-FREE.md) (free) or [DEPLOY-RENDER.md](DEPLOY-RENDER.md) (paid, with Keycloak); the generic procedure is below.
+
 1. Build and tag images with the git SHA: `docker build -f src/Api/Dockerfile --target runtime -t kb-api:$SHA .` (likewise `--target migrator`, and `docker build -t kb-web:$SHA web`). Push them to your registry.
 2. Take a database backup (see below).
 3. Run the migrator against production: `docker run --rm kb-migrator:$SHA --connection "<connection string>"`. It must exit 0. If it fails, stop: the old version is still serving.
@@ -55,7 +57,7 @@ Back up Postgres (`pg_dump -Fc` or the platform's point-in-time recovery) and th
 ## Operating notes and known limits
 - **Uploads are stored on local disk** (`Storage__RootPath`). Run one API replica per volume, or mount shared storage; object storage is not implemented. SignalR already uses the Redis backplane, so only blob storage blocks scale-out.
 - **Rate limits** are per user via Redis (`RateLimiting__*`, `Chat__RequestsPerMinute`); load tests need `tests/load/docker-compose.loadtest.yml`.
-- **nginx re-resolves the API every 5 seconds** (`DNS_RESOLVER`, `API_UPSTREAM`), so replacing the API container does not need a web restart. Set `DNS_RESOLVER` to your platform's resolver outside Docker.
+- **nginx re-resolves the API every 5 seconds** (`DNS_RESOLVER` (auto-detected from resolv.conf), `API_UPSTREAM`), so replacing the API container does not need a web restart. Override `DNS_RESOLVER` only if auto-detection is wrong.
 
 ## Incidents
 | Symptom | Check | Action |

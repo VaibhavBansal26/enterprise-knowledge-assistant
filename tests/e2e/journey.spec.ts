@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Sample users from infra/keycloak/kb-realm.json (dev realm only).
-const ALICE = { user: "alice", password: "alice-dev-pw" }; // admin
-const CAROL = { user: "carol", password: "carol-dev-pw" }; // viewer (read-only)
-const DAVE = { user: "dave", password: "dave-dev-pw" }; // admin of a different tenant
+// Sample users from infra/keycloak/kb-realm.json. Passwords default to the dev realm's; a hosted deployment generates
+// its own, so pass E2E_PASSWORD_ALICE etc. there.
+const ALICE = { user: "alice", password: process.env.E2E_PASSWORD_ALICE ?? "alice-dev-pw" }; // admin
+const CAROL = { user: "carol", password: process.env.E2E_PASSWORD_CAROL ?? "carol-dev-pw" }; // viewer (read-only)
+const DAVE = { user: "dave", password: process.env.E2E_PASSWORD_DAVE ?? "dave-dev-pw" }; // admin of a different tenant
 
 async function signIn(page: Page, who: { user: string; password: string }) {
   await page.goto("/");
@@ -27,8 +28,10 @@ test("admin signs in, uploads a document, asks a question and gets a cited answe
     buffer: Buffer.from("# Remote work\nEmployees may work remotely up to three days per week with manager approval.\n"),
   });
   await page.getByRole("button", { name: /upload/i }).click();
-  // Ingestion runs in the background; the row flips to Ready when chunks are embedded.
-  await expect(page.getByText(/ready/i).first()).toBeVisible({ timeout: 45_000 });
+  // Ingestion runs in the background; this document's row flips to "Ready · N chunks" once it is searchable.
+  // (Scoped to the row: the page header also says "API ready", which must not satisfy this wait.)
+  const row = page.getByRole("listitem").filter({ hasText: "policy.md" });
+  await expect(row.getByText(/Ready · \d+ chunks/)).toBeVisible({ timeout: 60_000 });
 
   await page.getByRole("link", { name: "Chat" }).click();
   await page.getByPlaceholder("Ask a question about your documents…").fill("How many days can employees work remotely?");

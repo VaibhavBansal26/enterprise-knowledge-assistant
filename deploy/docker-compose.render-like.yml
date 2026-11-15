@@ -1,0 +1,63 @@
+# Local stand-in for the Render topology in render.yaml, used to test it before deploying:
+# URI-style connection strings, Keycloak (hosted-realm image) reachable only through the web container at /auth,
+# the API running as root on a root-owned volume, migrations on startup.
+#   docker compose -f deploy/docker-compose.render-like.yml up -d --build
+#   E2E_ALICE_PASSWORD=... BASE_URL=http://localhost:8088 npx playwright test     (passwords below)
+name: kb-render-like
+
+x-pw: &pw
+  KB_PASSWORD_ALICE: alice-render-pw
+  KB_PASSWORD_BOB: bob-render-pw
+  KB_PASSWORD_CAROL: carol-render-pw
+  KB_PASSWORD_DAVE: dave-render-pw
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment: { POSTGRES_USER: kb, POSTGRES_PASSWORD: "p@ss;w=rd", POSTGRES_DB: kb }
+    volumes: ["./../infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U kb -d kb"], interval: 5s, timeout: 3s, retries: 10 }
+
+  redis:
+    image: redis:7-alpine
+
+  keycloak:
+    build: { context: ../infra/keycloak }
+    environment:
+      <<: *pw
+      PORT: "10000"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: render-like-admin-pw
+
+  api:
+    build: { context: .., dockerfile: src/Api/Dockerfile }   # default (last) stage, as on Render
+    environment:
+      PORT: "8080"
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      # URI forms with a password containing ; and = : exactly what a managed platform provides.
+      Database__ConnectionString: "postgres://kb:p%40ss%3Bw%3Drd@postgres:5432/kb"
+      Database__MigrateOnStartup: "true"
+      Redis__ConnectionString: "redis://redis:6379"
+      Storage__RootPath: /data/blobs
+      Auth__Authority: http://localhost:8088/auth/realms/kb
+      Auth__MetadataAddress: http://keycloak:10000/auth/realms/kb/.well-known/openid-configuration
+      Auth__RequireHttpsMetadata: "false"
+      Usage__DefaultMonthlyCostLimitUsd: "5"
+    volumes: ["blobs:/data/blobs"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  web:
+    build: { context: ../web }
+    environment:
+      PORT: "8080"
+      API_UPSTREAM: http://api:8080
+      KEYCLOAK_UPSTREAM: http://keycloak:10000
+      OIDC_AUTHORITY_PATH: /auth/realms/kb
+    ports: ["8088:8080"]
+    depends_on: [api, keycloak]
+
+volumes:
+  blobs:

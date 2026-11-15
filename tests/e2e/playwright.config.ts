@@ -3,6 +3,7 @@ import { defineConfig } from "@playwright/test";
 // Runs against a live stack (docker-compose.prod.yml by default). BASE_URL points at the web container.
 export default defineConfig({
   testDir: ".",
+  globalSetup: "./global-setup.ts",
   timeout: 60_000,
   expect: { timeout: 15_000 },
   retries: process.env.CI ? 1 : 0,

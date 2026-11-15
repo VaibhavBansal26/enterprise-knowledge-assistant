@@ -26,6 +26,16 @@ public sealed class AuthOptions
     public string Audience { get; init; } = string.Empty;
 
     public bool RequireHttpsMetadata { get; init; } = true;
+
+    /// <summary>
+    /// Names under which the identity provider issues the role, tenant and display-name claims when they are not the
+    /// canonical <c>roles</c>, <c>tenant_id</c> and <c>preferred_username</c> (for example Auth0's namespaced claims).
+    /// </summary>
+    public string? RolesClaim { get; init; }
+
+    public string? TenantClaim { get; init; }
+
+    public string? NameClaim { get; init; }
 }
 
 public static class Policies
@@ -44,6 +54,7 @@ public static class AuthSetup
             .ValidateDataAnnotations();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        services.AddSingleton<Microsoft.AspNetCore.Authentication.IClaimsTransformation, ClaimsNormalizer>();
 
         // Configured lazily from options so configuration overrides (tests, env vars) always apply.
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
