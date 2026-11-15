@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Sample users from infra/keycloak/kb-realm.json (dev realm only).
-const ALICE = { user: "alice", password: "alice-dev-pw" }; // admin
-const CAROL = { user: "carol", password: "carol-dev-pw" }; // viewer (read-only)
-const DAVE = { user: "dave", password: "dave-dev-pw" }; // admin of a different tenant
+// Sample users from infra/keycloak/kb-realm.json. Passwords default to the dev realm's; a hosted deployment generates
+// its own, so pass E2E_PASSWORD_ALICE etc. there.
+const ALICE = { user: "alice", password: process.env.E2E_PASSWORD_ALICE ?? "alice-dev-pw" }; // admin
+const CAROL = { user: "carol", password: process.env.E2E_PASSWORD_CAROL ?? "carol-dev-pw" }; // viewer (read-only)
+const DAVE = { user: "dave", password: process.env.E2E_PASSWORD_DAVE ?? "dave-dev-pw" }; // admin of a different tenant
 
 async function signIn(page: Page, who: { user: string; password: string }) {
   await page.goto("/");

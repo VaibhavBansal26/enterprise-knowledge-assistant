@@ -1,7 +1,13 @@
 import { InMemoryWebStorage, UserManager, WebStorageStateStore } from "oidc-client-ts";
 
-const authority = import.meta.env.VITE_OIDC_AUTHORITY ?? "http://localhost:8081/realms/kb";
-const clientId = import.meta.env.VITE_OIDC_CLIENT_ID ?? "kb-web";
+// Resolution order: runtime config (container) > build-time Vite variable > local development default.
+const runtime = window.__KB_CONFIG__ ?? {};
+const authority =
+  runtime.authority ||
+  (runtime.authorityPath ? `${window.location.origin}${runtime.authorityPath}` : undefined) ||
+  import.meta.env.VITE_OIDC_AUTHORITY ||
+  "http://localhost:8081/realms/kb";
+const clientId = runtime.clientId || import.meta.env.VITE_OIDC_CLIENT_ID || "kb-web";
 
 /**
  * Authorization Code flow with PKCE against the identity provider (Keycloak).

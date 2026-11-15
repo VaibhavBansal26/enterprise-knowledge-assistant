@@ -14,9 +14,11 @@ public sealed partial class GlobalExceptionHandler(IProblemDetailsService proble
     {
         ArgumentNullException.ThrowIfNull(httpContext);
 
-        // The client went away; there is nobody to respond to and nothing to alarm on.
+        // The client went away; there is nobody to respond to and nothing to alarm on. 499 is the de-facto
+        // "client closed request" status; without it the exception middleware leaves 500 in the request log.
         if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
         {
+            httpContext.Response.StatusCode = 499;
             return true;
         }
 

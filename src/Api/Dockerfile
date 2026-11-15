@@ -38,3 +38,8 @@ RUN mkdir -p /data/blobs && chown $APP_UID /data/blobs
 EXPOSE 8080
 USER $APP_UID
 ENTRYPOINT ["dotnet", "Api.dll"]
+
+# Last stage = default build target. Identical to "runtime" but runs as root, because some platforms (Render) mount
+# persistent disks root-owned. Compose and Kubernetes build "--target runtime" and keep the non-root user.
+FROM runtime AS runtime-root
+USER root

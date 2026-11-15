@@ -1,0 +1,79 @@
+# Render Blueprint: Dashboard > New > Blueprint > pick this repository.
+# Two values are asked for at creation (marked sync: false); see docs/DEPLOY-RENDER.md for the exact steps and costs.
+databases:
+  - name: kb-db
+    plan: basic-256mb           # paid; the free Postgres expires after 30 days
+    postgresMajorVersion: "17"  # pgvector is available on Render Postgres; the first migration runs CREATE EXTENSION
+    databaseName: kb
+    user: kb
+    ipAllowList: []             # private network only
+
+services:
+  - type: keyvalue
+    name: kb-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []             # private network only
+
+  # Identity provider (Keycloak, start-dev mode). Private: reached only through kb-web at /auth.
+  - type: pserv
+    name: kb-keycloak
+    runtime: docker
+    dockerfilePath: ./infra/keycloak/Dockerfile
+    dockerContext: ./infra/keycloak
+    plan: standard              # Keycloak needs about 1 GB of memory
+    envVars:
+      - { key: PORT, value: "10000" }
+      - { key: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin }
+      - { key: KC_BOOTSTRAP_ADMIN_PASSWORD, generateValue: true }
+      # Passwords of the four sample users (alice=admin, bob=editor, carol=viewer, dave=admin of another tenant).
+      # Read them from this service's Environment tab; change or replace the users before inviting anyone.
+      - { key: KB_PASSWORD_ALICE, generateValue: true }
+      - { key: KB_PASSWORD_BOB, generateValue: true }
+      - { key: KB_PASSWORD_CAROL, generateValue: true }
+      - { key: KB_PASSWORD_DAVE, generateValue: true }
+
+  - type: web
+    name: kb-api
+    runtime: docker
+    dockerfilePath: ./src/Api/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /health/ready
+    disk:
+      name: kb-blobs
+      mountPath: /data/blobs
+      sizeGB: 1
+    envVars:
+      - { key: PORT, value: "8080" }
+      - { key: ASPNETCORE_ENVIRONMENT, value: Production }
+      - { key: ASPNETCORE_FORWARDEDHEADERS_ENABLED, value: "true" }
+      - key: Database__ConnectionString
+        fromDatabase: { name: kb-db, property: connectionString }
+      # Render replaces the old instance only after the new one is healthy, so a failing migration leaves the
+      # previous version serving. Keep this at one instance, or switch to the migrator image as a pre-deploy step.
+      - { key: Database__MigrateOnStartup, value: "true" }
+      - key: Redis__ConnectionString
+        fromService: { type: keyvalue, name: kb-redis, property: connectionString }
+      - { key: Storage__RootPath, value: /data/blobs }
+      # Token issuer = this site's public URL + /auth/realms/kb, e.g. https://kb-web.onrender.com/auth/realms/kb
+      - { key: Auth__Authority, sync: false }
+      # Signing keys are fetched over the private network.
+      - { key: Auth__MetadataAddress, value: "http://kb-keycloak:10000/auth/realms/kb/.well-known/openid-configuration" }
+      - { key: Auth__RequireHttpsMetadata, value: "false" }
+      - { key: Llm__Provider, value: extractive }   # set to "anthropic" together with the key below for real answers
+      - { key: Llm__Anthropic__ApiKey, sync: false }
+      - { key: Usage__DefaultMonthlyCostLimitUsd, value: "5" }
+
+  - type: web
+    name: kb-web
+    runtime: docker
+    dockerfilePath: ./web/Dockerfile
+    dockerContext: ./web
+    plan: starter
+    healthCheckPath: /index.html
+    envVars:
+      - { key: PORT, value: "8080" }
+      - { key: API_UPSTREAM, value: "http://kb-api:8080" }
+      - { key: KEYCLOAK_UPSTREAM, value: "http://kb-keycloak:10000" }
+      - { key: OIDC_AUTHORITY_PATH, value: /auth/realms/kb }
