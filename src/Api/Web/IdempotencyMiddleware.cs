@@ -29,7 +29,8 @@ public sealed partial class IdempotencyMiddleware(
         ArgumentNullException.ThrowIfNull(context);
 
         if (!HttpMethods.IsPost(context.Request.Method)
-            || !context.Request.Headers.TryGetValue(HeaderName, out var header))
+            || !context.Request.Headers.TryGetValue(HeaderName, out var header)
+            || context.GetEndpoint()?.Metadata.GetMetadata<NoIdempotencyAttribute>() is not null)
         {
             await next(context);
             return;
@@ -159,6 +160,30 @@ public sealed partial class IdempotencyMiddleware(
     {
         request.EnableBuffering();
         using var sha = SHA256.Create();
+
+        // A multipart body differs on every retry (the client picks a fresh random boundary each time), so
+        // hashing raw bytes would reject every genuine retry of an upload. Fingerprint what the request
+        // *means* instead: its form fields and each file's name and content.
+        if (request.HasFormContentType)
+        {
+            var form = await request.ReadFormAsync();
+            var parts = new List<string>();
+            foreach (var field in form.OrderBy(f => f.Key, StringComparer.Ordinal))
+            {
+                parts.Add($"field:{field.Key}={field.Value}");
+            }
+
+            foreach (var file in form.Files.OrderBy(f => f.Name, StringComparer.Ordinal))
+            {
+                await using var stream = file.OpenReadStream();
+                var fileHash = Convert.ToHexString(await sha.ComputeHashAsync(stream));
+                parts.Add($"file:{file.Name}:{file.FileName}:{file.Length}:{fileHash}");
+            }
+
+            request.Body.Position = 0;
+            return Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('\n', parts))));
+        }
+
         var hash = await sha.ComputeHashAsync(request.Body);
         request.Body.Position = 0;
         return Convert.ToHexString(hash);
@@ -183,3 +208,7 @@ public sealed partial class IdempotencyMiddleware(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to release idempotency key")]
     private static partial void LogReleaseFailed(ILogger logger, Exception exception);
 }
+
+/// <summary>Marks an endpoint whose response must not be buffered for replay (e.g. a live stream).</summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public sealed class NoIdempotencyAttribute : Attribute;

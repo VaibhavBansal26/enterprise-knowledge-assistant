@@ -58,6 +58,22 @@ public static class AuthSetup
 
                 jwt.RequireHttpsMetadata = settings.RequireHttpsMetadata;
                 jwt.MapInboundClaims = false; // keep claim names as issued: sub, roles, tenant_id
+
+                // Browsers cannot set headers on a WebSocket, so SignalR passes the token in the query string.
+                // Only honoured for hub paths; the logging redactor masks `access_token` everywhere else.
+                jwt.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = ctx =>
+                    {
+                        var token = ctx.Request.Query["access_token"];
+                        if (!string.IsNullOrEmpty(token) && ctx.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                        {
+                            ctx.Token = token;
+                        }
+
+                        return Task.CompletedTask;
+                    },
+                };
                 jwt.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
@@ -78,6 +94,7 @@ public static class AuthSetup
             .AddPolicy(Policies.Write, p => p.RequireRole(Roles.Admin, Roles.Editor))
             .AddPolicy(Policies.Admin, p => p.RequireRole(Roles.Admin));
 
+        services.AddScoped<WorkspaceAccessEvaluator>();
         services.AddScoped<IAuthorizationHandler, WorkspaceAuthorizationHandler>();
         return services;
     }

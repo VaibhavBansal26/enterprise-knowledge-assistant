@@ -3,7 +3,6 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Application.Common;
-using Application.Documents;
 using Application.Workspaces;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -157,9 +156,7 @@ public sealed class AuthTests(ApiFactory factory)
     {
         var workspace = await CreateWorkspaceAsync(factory.AdminClient());
 
-        var response = await factory.CreateClientAs(TestAuth.AdminB).PostAsJsonAsync(
-            $"/api/v1/workspaces/{workspace.Id}/documents",
-            new CreateDocumentRequest("x", "x.pdf", "application/pdf", 10, null));
+        var response = await TestFiles.UploadAsync(factory.CreateClientAs(TestAuth.AdminB), workspace.Id);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -208,18 +205,17 @@ public sealed class AuthTests(ApiFactory factory)
         var guest = factory.CreateClientAs(TestAuth.EditorA2);
         var workspace = await CreateWorkspaceAsync(owner);
         var docUrl = $"/api/v1/workspaces/{workspace.Id}/documents";
-        var newDoc = new CreateDocumentRequest("Doc", "doc.pdf", "application/pdf", 10, null);
 
         // Viewer membership: can read, cannot write.
         Assert.Equal(HttpStatusCode.Created, (await PutMember(admin, workspace.Id, TestAuth.EditorA2.Sub, "Viewer")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await guest.GetAsync(docUrl)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await guest.PostAsJsonAsync(docUrl, newDoc)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await TestFiles.UploadAsync(guest, workspace.Id)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await guest.PutAsJsonAsync(
             $"/api/v1/workspaces/{workspace.Id}", new UpdateWorkspaceRequest("x", null, workspace.Version))).StatusCode);
 
         // Upgrade to Editor: can write.
         Assert.Equal(HttpStatusCode.OK, (await PutMember(admin, workspace.Id, TestAuth.EditorA2.Sub, "Editor")).StatusCode);
-        Assert.Equal(HttpStatusCode.Created, (await guest.PostAsJsonAsync(docUrl, newDoc)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await TestFiles.UploadAsync(guest, workspace.Id)).StatusCode);
 
         // Removal: the workspace disappears again.
         Assert.Equal(HttpStatusCode.NoContent,
@@ -235,9 +231,7 @@ public sealed class AuthTests(ApiFactory factory)
         await PutMember(admin, workspace.Id, TestAuth.ViewerA.Sub, "Editor");
 
         // The token's tenant-wide role is the ceiling: membership cannot elevate a viewer.
-        var response = await factory.CreateClientAs(TestAuth.ViewerA).PostAsJsonAsync(
-            $"/api/v1/workspaces/{workspace.Id}/documents",
-            new CreateDocumentRequest("Doc", "doc.pdf", "application/pdf", 10, null));
+        var response = await TestFiles.UploadAsync(factory.CreateClientAs(TestAuth.ViewerA), workspace.Id);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

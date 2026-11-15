@@ -1,6 +1,8 @@
 using Application.Abstractions;
 using Domain;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Pgvector;
 
 namespace Infrastructure.Persistence;
 
@@ -10,6 +12,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<DocumentChunk> Chunks => Set<DocumentChunk>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<UsageLedgerEntry> UsageLedger => Set<UsageLedgerEntry>();
+    public DbSet<TenantQuota> TenantQuotas => Set<TenantQuota>();
 
     /// <summary>
     /// Read by the global query filters. Guid.Empty (no tenant) matches no rows, so a request that
@@ -20,6 +28,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
+
+        modelBuilder.HasPostgresExtension("vector");
 
         modelBuilder.Entity<Workspace>(b =>
         {
@@ -40,6 +50,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
             b.Property(x => x.Title).HasMaxLength(300).IsRequired();
             b.Property(x => x.FileName).HasMaxLength(260).IsRequired();
             b.Property(x => x.ContentType).HasMaxLength(150).IsRequired();
+            b.Property(x => x.StorageKey).HasMaxLength(200).IsRequired();
+            b.Property(x => x.ContentHash).HasMaxLength(64).IsRequired();
+            b.Property(x => x.FailureReason).HasMaxLength(500);
             b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             b.Property(x => x.Metadata).HasColumnType("jsonb");
             b.Property(x => x.Version).IsRowVersion();
@@ -59,6 +72,93 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
             b.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.WorkspaceId, x.UserId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.UserId });
+        });
+
+        modelBuilder.Entity<DocumentChunk>(b =>
+        {
+            b.ToTable("document_chunks");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Content).IsRequired();
+            b.Property(x => x.EmbeddingModel).HasMaxLength(100).IsRequired().HasDefaultValue("hashing-v1");
+            // Full-text index over the passage, maintained by Postgres itself (generated column).
+            b.Property<NpgsqlTypes.NpgsqlTsVector>("SearchVector")
+                .HasColumnName("search_vector")
+                .HasColumnType("tsvector")
+                .HasComputedColumnSql("to_tsvector('english', content)", stored: true);
+            b.HasIndex("SearchVector").HasMethod("GIN");
+            b.Property(x => x.Embedding)
+                .HasColumnType($"vector({DocumentChunk.EmbeddingDimensions})")
+                .HasConversion(
+                    v => new Vector(v),
+                    v => v.ToArray(),
+                    new ValueComparer<float[]>(
+                        (a, c) => a != null && c != null && a.SequenceEqual(c),
+                        v => v.Aggregate(0, (h, f) => HashCode.Combine(h, f)),
+                        v => v.ToArray()));
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasOne<Document>().WithMany().HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.DocumentId, x.Index }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.WorkspaceId });
+            // Approximate nearest-neighbour index for cosine similarity search.
+            b.HasIndex(x => x.Embedding).HasMethod("hnsw").HasOperators("vector_cosine_ops");
+        });
+
+        modelBuilder.Entity<Conversation>(b =>
+        {
+            b.ToTable("conversations");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.UserId).HasMaxLength(128).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasIndex(x => new { x.TenantId, x.UserId, x.UpdatedAt });
+        });
+
+        modelBuilder.Entity<ChatMessage>(b =>
+        {
+            b.ToTable("chat_messages");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
+            b.Property(x => x.Content).IsRequired();
+            b.Property(x => x.CitationsJson).HasColumnType("jsonb");
+            b.Property(x => x.Model).HasMaxLength(100);
+            b.Property(x => x.PromptVersion).HasMaxLength(50);
+            b.Property(x => x.Feedback).HasMaxLength(10);
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ConversationId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<UsageLedgerEntry>(b =>
+        {
+            b.ToTable("usage_ledger");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.UserId).HasMaxLength(128);
+            b.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Model).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Outcome).HasMaxLength(30).IsRequired();
+            b.Property(x => x.CostUsd).HasPrecision(14, 6);
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<TenantQuota>(b =>
+        {
+            b.ToTable("tenant_quotas");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.MonthlyCostLimitUsd).HasPrecision(14, 2);
+            b.HasQueryFilter(x => x.TenantId == CurrentTenantId);
+            b.HasIndex(x => x.TenantId).IsUnique();
+        });
+
+        modelBuilder.Entity<OutboxMessage>(b =>
+        {
+            b.ToTable("outbox_messages");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Type).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Payload).IsRequired();
+            b.Property(x => x.LastError).HasMaxLength(2000);
+            // Deliberately no tenant filter: workers are system actors (see OutboxMessage).
+            b.HasIndex(x => x.NextAttemptAt).HasFilter("processed_at IS NULL AND dead_at IS NULL");
         });
 
         modelBuilder.Entity<AuditLog>(b =>

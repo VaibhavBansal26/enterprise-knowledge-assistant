@@ -8,6 +8,8 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:8080",
       "/health": "http://localhost:8080",
+      // SignalR: negotiate over HTTP, then upgrade to a WebSocket.
+      "/hubs": { target: "http://localhost:8080", ws: true },
     },
   },
 });

@@ -15,7 +15,23 @@ jobs:
           dotnet-version: 9.0.x
       - run: dotnet restore
       - run: dotnet build --no-restore -c Release
-      - run: dotnet test --no-build -c Release
+      - name: Tests
+        run: dotnet test --no-build -c Release --filter "Category!=Eval"
+      # Quality and safety gate: fails the build on a leak, an injection, a PII exposure, a metric below its floor,
+      # or a regression against evals/baseline.json. Runs the offline stand-ins, so it needs no API keys.
+      - name: Eval regression gate
+        run: dotnet test --no-build -c Release --filter "Category=Eval"
+      - name: Publish eval report
+        if: always()
+        run: |
+          if [ -f evals/results/latest.md ]; then cat evals/results/latest.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: evals/results/
+          if-no-files-found: ignore
 
   web:
     runs-on: ubuntu-latest
@@ -32,3 +48,46 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  # Builds the three images (API, migrations bundle, web), starts the production-shaped stack, and drives it with
+  # a real browser: sign in through Keycloak, upload, ingest, ask, and check tenant and role boundaries.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack
+        run: |
+          cp .env.example .env
+          sed -i 's/change-me/ci-only-password/' .env
+          docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+      - name: Wait for the API
+        run: |
+          for i in $(seq 1 60); do
+            curl -fsS localhost:8088/health/ready && exit 0
+            sleep 3
+          done
+          docker compose -f docker-compose.prod.yml logs
+          exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+      - name: Playwright
+        working-directory: tests/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            tests/e2e/playwright-report/
+            tests/e2e/test-results/
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs --tail 200

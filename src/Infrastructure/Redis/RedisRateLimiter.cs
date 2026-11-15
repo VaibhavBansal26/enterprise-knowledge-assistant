@@ -33,21 +33,24 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, IOptions<Rate
         return { count, ttl }
         """;
 
-    public async Task<RateLimitResult> TryAcquireAsync(string key, CancellationToken cancellationToken)
+    public async Task<RateLimitResult> TryAcquireAsync(
+        string key, CancellationToken cancellationToken, int? permitLimit = null, int? windowSeconds = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var o = options.Value;
+        var limit = permitLimit ?? o.PermitLimit;
+        var window = windowSeconds ?? o.WindowSeconds;
         var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(
             Script,
             [new RedisKey($"{o.KeyPrefix}:{key}")],
-            [o.WindowSeconds]))!;
+            [window]))!;
 
         var count = (long)result[0];
         var ttl = (long)result[1];
-        var remaining = (int)Math.Max(0, o.PermitLimit - count);
-        var retryAfter = ttl > 0 ? (int)ttl : o.WindowSeconds;
+        var remaining = (int)Math.Max(0, limit - count);
+        var retryAfter = ttl > 0 ? (int)ttl : window;
 
-        return new RateLimitResult(count <= o.PermitLimit, o.PermitLimit, remaining, retryAfter);
+        return new RateLimitResult(count <= limit, limit, remaining, retryAfter);
     }
 }

@@ -14,12 +14,31 @@ public static class WorkspaceOperations
     public static readonly OperationAuthorizationRequirement Write = new() { Name = nameof(Write) };
 }
 
+/// <summary>The membership rules, usable from HTTP handlers and from SignalR hubs alike.</summary>
+public sealed class WorkspaceAccessEvaluator(AppDbContext db)
+{
+    public async Task<bool> CanAsync(Workspace workspace, string userId, bool isAdmin, bool write)
+    {
+        if (isAdmin)
+        {
+            return true;
+        }
+
+        var role = await db.WorkspaceMembers
+            .Where(m => m.WorkspaceId == workspace.Id && m.UserId == userId)
+            .Select(m => (WorkspaceRole?)m.Role)
+            .FirstOrDefaultAsync();
+
+        return role is not null && (!write || role == WorkspaceRole.Editor);
+    }
+}
+
 /// <summary>
 /// Resource-based authorization: tenant admins may access every workspace in their tenant; everyone else
 /// needs a membership (any role to read, Editor to write). The tenant boundary itself is enforced earlier
 /// by the DbContext query filter, and re-checked here as defence in depth.
 /// </summary>
-public sealed class WorkspaceAuthorizationHandler(AppDbContext db, ICurrentUser user, ITenantContext tenant)
+public sealed class WorkspaceAuthorizationHandler(WorkspaceAccessEvaluator access, ICurrentUser user, ITenantContext tenant)
     : AuthorizationHandler<OperationAuthorizationRequirement, Workspace>
 {
     protected override async Task HandleRequirementAsync(
@@ -34,24 +53,8 @@ public sealed class WorkspaceAuthorizationHandler(AppDbContext db, ICurrentUser 
             return;
         }
 
-        if (user.IsAdmin)
-        {
-            context.Succeed(requirement);
-            return;
-        }
-
-        var role = await db.WorkspaceMembers
-            .Where(m => m.WorkspaceId == resource.Id && m.UserId == user.UserId)
-            .Select(m => (WorkspaceRole?)m.Role)
-            .FirstOrDefaultAsync();
-
-        if (role is null)
-        {
-            return;
-        }
-
-        if (requirement == WorkspaceOperations.Read
-            || (requirement == WorkspaceOperations.Write && role == WorkspaceRole.Editor))
+        var write = requirement == WorkspaceOperations.Write;
+        if (await access.CanAsync(resource, user.UserId, user.IsAdmin, write))
         {
             context.Succeed(requirement);
         }
