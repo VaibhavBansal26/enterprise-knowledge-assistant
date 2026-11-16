@@ -6,11 +6,12 @@ import { ChatPage } from "./pages/ChatPage";
 import { OpsPage } from "./pages/OpsPage";
 import { WorkspaceDetailPage } from "./pages/WorkspaceDetailPage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
+import { apiBase } from "./config";
 
 function BackendStatus() {
   const { data, isError } = useQuery({
     queryKey: ["status", "ready"],
-    queryFn: async () => (await fetch("/health/ready")).ok,
+    queryFn: async () => (await fetch(`${apiBase}/health/ready`)).ok,
     refetchInterval: 10_000,
     retry: false,
   });
