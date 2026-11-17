@@ -1,0 +1,12 @@
+# Overlay for recording the demo (paths are relative to the repository root, where docker-compose.yml lives):
+#   docker compose -f docker-compose.yml -f demo/docker-compose.demo.yml --profile full --profile observability up -d --build
+# API on :8090 (8080 is often taken), eval report mounted so the Ops page shows scores, traces sent to the Aspire dashboard.
+services:
+  api:
+    ports: !override
+      - "8090:8080"
+    environment:
+      Evals__ResultsPath: /evals/latest.json
+      Telemetry__OtlpEndpoint: http://dashboard:18889
+    volumes:
+      - ./evals/results:/evals:ro
