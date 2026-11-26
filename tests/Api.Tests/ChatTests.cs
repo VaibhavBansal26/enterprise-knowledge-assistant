@@ -162,7 +162,7 @@ public sealed class ChatTests(ApiFactory factory)
     [Fact]
     public async Task Deleted_documents_and_documents_still_processing_are_not_retrievable()
     {
-        using var host = await TestHosts.StartWorkerHostAsync(factory, TestHosts.Llm(new RecordingLlm()), ("Chat:CacheEnabled", "false"));
+        var host = await TestHosts.StartWorkerHostAsync(factory, TestHosts.Llm(new RecordingLlm()), ("Chat:CacheEnabled", "false"));
         var admin = ApiFactory.ClientAs(host, TestAuth.AdminA);
         var workspaceId = await CreateWorkspaceAsync(admin);
         var doc = await UploadReadyAsync(admin, workspaceId, "Handbook", LeaveText);
@@ -174,12 +174,14 @@ public sealed class ChatTests(ApiFactory factory)
 
         Assert.Equal(ChatService.NoSourcesAnswer, afterDelete.GetProperty("content").GetString());
 
-        // A document that has been uploaded but not yet processed (no worker on the shared host) is not searchable either.
+        // A document that has been uploaded but not yet processed is not searchable either. The worker host is
+        // stopped first: it shares the database, so it would otherwise ingest the upload before the question runs.
+        host.Dispose();
         var pendingClient = factory.AdminClient();
         var pendingWorkspace = await CreateWorkspaceAsync(pendingClient);
         await TestFiles.UploadOkAsync(pendingClient, pendingWorkspace, "pending.md", TestFiles.Markdown(LeaveText));
-        var pendingConversation = await CreateConversationAsync(admin, pendingWorkspace);
-        var pending = Done((await AskAsync(admin, pendingConversation, LeaveQuestion)).Events).Data;
+        var pendingConversation = await CreateConversationAsync(pendingClient, pendingWorkspace);
+        var pending = Done((await AskAsync(pendingClient, pendingConversation, LeaveQuestion)).Events).Data;
         Assert.Equal(ChatService.NoSourcesAnswer, pending.GetProperty("content").GetString());
     }
 
